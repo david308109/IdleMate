@@ -93,9 +93,14 @@ object OemHelper {
     private fun restrictedMode(ctx: Context): Int {
         if (android.os.Build.VERSION.SDK_INT < 33) return android.app.AppOpsManager.MODE_ALLOWED
         val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
-        return runCatching {
+        val r = runCatching {
             ops.unsafeCheckOpNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
-        }.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED)
+        }
+        val raw = runCatching {
+            ops.unsafeCheckOpRawNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
+        }
+        DebugLog.add(ctx, "受限制設定 mode=${r.getOrNull()} raw=${raw.getOrNull()} err=${r.exceptionOrNull() ?: raw.exceptionOrNull()}")
+        return r.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED)
     }
 
     fun isRestricted(ctx: Context): Boolean = restrictedMode(ctx).let {
