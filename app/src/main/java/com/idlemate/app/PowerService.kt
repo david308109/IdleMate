@@ -112,6 +112,24 @@ class PowerService : IPowerService.Stub() {
     @Volatile private var snapRun = false
     private val logLines = java.util.Collections.synchronizedList(ArrayList<String>())
 
+    @Volatile private var ytState = -1
+    @Volatile private var sending = false
+    private val stRe = Regex("state=[A-Z_]+[(]([0-9]+)[)]")
+
+    private fun trySendPlay() {
+        logLines.add("[" + hhmmss() + "] 偵測到 播放→停止，開始送播放指令")
+        val r1 = runCmd("cmd", "media_session", "dispatch", "play")
+        logLines.add("[" + hhmmss() + "] cmd media_session dispatch play → " + r1.take(120))
+        try { Thread.sleep(1500) } catch (_: Throwable) {}
+        logLines.add("[" + hhmmss() + "] 送出後狀態 state=" + ytState)
+        if (ytState != 3) {
+            val r2 = runCmd("input", "keyevent", "126")
+            logLines.add("[" + hhmmss() + "] input keyevent 126(MEDIA_PLAY) → " + r2.take(120))
+            try { Thread.sleep(1500) } catch (_: Throwable) {}
+            logLines.add("[" + hhmmss() + "] 再送後狀態 state=" + ytState)
+        }
+    }
+
     private fun runCmd(vararg args: String): String = try {
         val q = Runtime.getRuntime().exec(arrayOf(*args))
         val out = q.inputStream.bufferedReader().readText() + q.errorStream.bufferedReader().readText()
@@ -123,7 +141,7 @@ class PowerService : IPowerService.Stub() {
     override fun startLogCapture(): String = synchronized(this) {
         runCatching { logProc?.destroy() }
         snapRun = false
-        logLines.clear()
+        logLines.clear(); ytState = -1; sending = false
         try {
             // 三個緩衝區都要清，否則會撈到之前的歷史
             runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-c")).waitFor() }
@@ -135,6 +153,17 @@ class PowerService : IPowerService.Stub() {
                     p.inputStream.bufferedReader().forEachLine { l ->
                         val low = l.lowercase()
                         if (keys.any { low.contains(it) } && logLines.size < 500) logLines.add(l.take(260))
+                        if (low.contains("onsessionplaybackstatechanged") && low.contains("youtube")) {
+                            val m = stRe.find(l)
+                            val st = m?.groupValues?.get(1)?.toIntOrNull() ?: -1
+                            if (st >= 0) {
+                                if (ytState == 3 && (st == 1 || st == 2) && !sending) {
+                                    sending = true
+                                    Thread { trySendPlay() ; sending = false }.apply { isDaemon = true; start() }
+                                }
+                                ytState = st
+                            }
+                        }
                     }
                 } catch (_: Throwable) {}
             }.apply { isDaemon = true; start() }
@@ -152,21 +181,6 @@ class PowerService : IPowerService.Stub() {
                             .filter { it.contains("youtube", true) || it.startsWith("state=PlaybackState") || it.contains("active=") }
                             .take(12).joinToString(" | ").take(300)
                         if (cond != prev) { prev = cond; if (logLines.size < 500) logLines.add("[" + hhmmss() + "] 媒體工作階段 state=" + st + ": " + cond) }
-                        if (prevState == 3 && (st == 1 || st == 2)) {
-                            logLines.add("[" + hhmmss() + "] 偵測到 播放→停止(" + st + ")，開始送播放指令")
-                            val r1 = runCmd("cmd", "media_session", "dispatch", "play")
-                            logLines.add("[" + hhmmss() + "] cmd media_session dispatch play → " + r1.take(120))
-                            try { Thread.sleep(1500) } catch (_: Throwable) {}
-                            val st1 = re.find(runCmd("dumpsys", "media_session"))?.groupValues?.get(1)
-                            logLines.add("[" + hhmmss() + "] 送出後狀態 state=" + st1)
-                            if (st1 != "3") {
-                                val r2 = runCmd("input", "keyevent", "126")
-                                logLines.add("[" + hhmmss() + "] input keyevent 126(MEDIA_PLAY) → " + r2.take(120))
-                                try { Thread.sleep(1500) } catch (_: Throwable) {}
-                                val st2 = re.find(runCmd("dumpsys", "media_session"))?.groupValues?.get(1)
-                                logLines.add("[" + hhmmss() + "] 再送後狀態 state=" + st2)
-                            }
-                        }
                         prevState = st
                     } catch (_: Throwable) {}
                     try { Thread.sleep(1000) } catch (_: Throwable) {}
