@@ -58,8 +58,15 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(2)
+            .daemon(false).processNameSuffix("power").version(3)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
+    }
+
+    /** 讓手機進入鎖定狀態（顯示鎖屏），但系統不睡眠。 */
+    fun lockKeyguard(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            Thread { done(runCatching { svc.lockKeyguard() }.getOrElse { "呼叫失敗：$it" }) }.start()
+        }
     }
 
     /** 送出「喚醒」按鍵（以 shell 身分），讓睡眠中的手機亮屏。 */

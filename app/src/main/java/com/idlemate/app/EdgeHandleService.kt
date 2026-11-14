@@ -212,6 +212,10 @@ class EdgeHandleService : Service() {
         handler.postDelayed({
             if (!sessionActive) return@postDelayed
             ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
+            // 實驗：讓手機進入鎖定狀態（顯示鎖屏）但不睡眠，觀察 YouTube 會不會繼續播
+            handler.postDelayed({
+                if (sessionActive) ShizukuHelper.lockKeyguard(this) { DebugLog.add(this, "鎖屏：$it") }
+            }, 600)
         }, 400)
     }
 

@@ -10,4 +10,7 @@ interface IPowerService {
 
     // 送出「喚醒」按鍵，讓睡眠中的手機亮屏（進入鎖屏畫面）
     String wakeUp() = 2;
+
+    // 只顯示鎖屏（讓手機進入鎖定狀態），但不讓系統睡眠
+    String lockKeyguard() = 3;
 }

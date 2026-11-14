@@ -24,6 +24,16 @@ class PowerService : IPowerService.Stub() {
         "喚醒按鍵已送出，結束碼 ${p.waitFor()}"
     } catch (t: Throwable) { "喚醒失敗：${describe(t)}" }
 
+    /** 呼叫 IWindowManager.lockNow：顯示鎖屏，但不像電源鍵那樣讓系統睡眠。 */
+    override fun lockKeyguard(): String = try {
+        val sm = Class.forName("android.os.ServiceManager")
+        val binder = sm.getMethod("getService", String::class.java).invoke(null, "window") as IBinder
+        val stub = Class.forName("android.view.IWindowManager\$Stub")
+        val wm = stub.getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+        wm!!.javaClass.getMethod("lockNow", android.os.Bundle::class.java).invoke(wm, null as android.os.Bundle?)
+        "已呼叫 lockNow（鎖屏，不睡眠）"
+    } catch (t: Throwable) { "lockNow 失敗：${describe(t)}" }
+
     private fun describe(t: Throwable): String {
         val c = (t as? java.lang.reflect.InvocationTargetException)?.cause ?: t
         return "${c.javaClass.simpleName}: ${c.message}"
