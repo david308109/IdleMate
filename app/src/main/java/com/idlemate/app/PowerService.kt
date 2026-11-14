@@ -143,7 +143,7 @@ class PowerService : IPowerService.Stub() {
             Thread {
                 var prev = ""
                 var prevState = -1
-                val re = Regex("state=PlaybackState \{state=(\d+)")
+                val re = Regex("state=PlaybackState [{]state=([0-9]+)")
                 while (snapRun) {
                     try {
                         val txt = runCmd("dumpsys", "media_session")
