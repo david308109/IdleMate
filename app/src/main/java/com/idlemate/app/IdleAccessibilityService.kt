@@ -110,12 +110,29 @@ class IdleAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         val cls = event.className?.toString() ?: return
         if (pkg == packageName || pkg == "com.android.systemui") return
-        if (!isActivity(pkg, cls)) return
+        // 桌面（含最近使用的 App 畫面）送來的事件常常不是標準的 Activity 類別，一律當成回到桌面
+        if (pkg !in homePackages() && !isActivity(pkg, cls)) return
         if (pkg != foregroundPkg) {
             foregroundPkg = pkg
             closePanel()
         }
         updateHandle()
+    }
+
+    private var homeCache: Set<String>? = null
+    private var homeCacheAt = 0L
+
+    /** 所有桌面 App 的套件名稱（每分鐘更新一次，換桌面也能跟上）。 */
+    private fun homePackages(): Set<String> {
+        val now = System.currentTimeMillis()
+        homeCache?.let { if (now - homeCacheAt < 60_000) return it }
+        val set = runCatching {
+            packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
+            ).map { it.activityInfo.packageName }.toSet()
+        }.getOrDefault(emptySet())
+        homeCache = set; homeCacheAt = now
+        return set
     }
 
     private fun isActivity(pkg: String, cls: String): Boolean = activityCache.getOrPut("$pkg/$cls") {
