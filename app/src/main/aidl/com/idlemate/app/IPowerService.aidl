@@ -22,4 +22,8 @@ interface IPowerService {
 
     // 直接指定面板電源模式：0=關閉 1=低功耗顯示(DOZE) 2=正常
     String setDisplayMode(int mode) = 8;
+
+    // 診斷：開始 / 結束擷取系統日誌（只留與 YouTube、媒體、凍結程序相關的行）
+    String startLogCapture() = 9;
+    String stopLogCapture() = 10;
 }

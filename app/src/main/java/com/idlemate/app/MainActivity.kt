@@ -217,6 +217,31 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
             }
         }
 
+        // ── 診斷：鎖屏時是誰停了 YouTube ──
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("診斷：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
+                Text("1. 按「開始擷取」
+2. 開 YouTube 播放影片
+3. 按電源鍵鎖屏，等 5 秒，再按電源鍵亮屏
+4. 回到 IdleMate，按「結束並顯示」",
+                    style = MaterialTheme.typography.bodySmall)
+                var diag by remember { mutableStateOf("") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        if (!ShizukuHelper.granted()) diag = "請先啟動並授權 Shizuku"
+                        else { diag = "擷取中…"; ShizukuHelper.startLogCapture(ctx) { r -> diag = r } }
+                    }) { Text("開始擷取") }
+                    OutlinedButton(onClick = {
+                        ShizukuHelper.stopLogCapture(ctx) { r -> diag = r }
+                    }) { Text("結束並顯示") }
+                }
+                if (diag.isNotEmpty()) androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(diag, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
         // ── 邊緣把手 ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -232,14 +257,6 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 if (!overlayOk) {
                     Text("⚠️ 需要「顯示在其他應用程式上層」權限")
                     Button(onClick = { OemHelper.openOverlaySettings(ctx) }) { Text("前往授權") }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("實驗：低功耗顯示模式")
-                        Text("關面板時改用低功耗顯示，點螢幕有機會喚醒；畫面可能不是全黑", style = MaterialTheme.typography.bodySmall)
-                    }
-                    var doze by remember(refreshTick) { mutableStateOf(prefs.dozeOff) }
-                    Switch(checked = doze, onCheckedChange = { doze = it; prefs.dozeOff = it })
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("放在左邊", modifier = Modifier.weight(1f))

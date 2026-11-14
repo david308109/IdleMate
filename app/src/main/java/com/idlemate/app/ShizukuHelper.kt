@@ -62,7 +62,7 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(8)
+            .daemon(false).processNameSuffix("power").version(9)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
     }
 
@@ -99,6 +99,18 @@ object ShizukuHelper {
     fun touchStamp(done: (Long) -> Unit) {
         val s = service ?: return
         executor.execute { done(runCatching { s.touchStamp() }.getOrDefault(0L)) }
+    }
+
+    fun startLogCapture(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            executor.execute { done(runCatching { svc.startLogCapture() }.getOrElse { "呼叫失敗：$it" }) }
+        }
+    }
+
+    fun stopLogCapture(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            executor.execute { done(runCatching { svc.stopLogCapture() }.getOrElse { "呼叫失敗：$it" }) }
+        }
     }
 
     /** 指定面板電源模式（0 關、1 低功耗顯示、2 正常）。 */

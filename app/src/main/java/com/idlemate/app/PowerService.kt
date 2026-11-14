@@ -108,6 +108,38 @@ class PowerService : IPowerService.Stub() {
 
     override fun touchStamp(): Long = lastTouch
 
+    @Volatile private var logProc: Process? = null
+    private val logLines = java.util.Collections.synchronizedList(ArrayList<String>())
+
+    override fun startLogCapture(): String = synchronized(this) {
+        runCatching { logProc?.destroy() }
+        logLines.clear()
+        try {
+            runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-c")).waitFor() }
+            val p = Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-v", "time"))
+            logProc = p
+            val keys = listOf("youtube", "freez", "mediasession", "audiofocus", "screen_off", "screenoff",
+                "goingtosleep", "keyguard", "pause", "wakefulness", "cached", "am_kill", "am_proc_died", "am_freeze")
+            Thread {
+                try {
+                    p.inputStream.bufferedReader().forEachLine { l ->
+                        val low = l.lowercase()
+                        if (keys.any { low.contains(it) } && logLines.size < 400) logLines.add(l.take(220))
+                    }
+                } catch (_: Throwable) {}
+            }.apply { isDaemon = true; start() }
+            "已開始擷取日誌"
+        } catch (t: Throwable) { "擷取日誌失敗：${describe(t)}" }
+    }
+
+    override fun stopLogCapture(): String = synchronized(this) {
+        runCatching { logProc?.destroy() }
+        logProc = null
+        val yt = synchronized(logLines) { logLines.toList() }
+        if (yt.isEmpty()) "（沒有擷取到相關日誌）" else yt.joinToString("
+")
+    }
+
     private fun describe(t: Throwable): String {
         val c = (t as? java.lang.reflect.InvocationTargetException)?.cause ?: t
         return "${c.javaClass.simpleName}: ${c.message}"
