@@ -57,6 +57,20 @@ object OemHelper {
 
     fun canOverlay(ctx: Context) = Settings.canDrawOverlays(ctx)
 
+    /** 「使用狀況存取」：用來得知目前前景是哪個 App。 */
+    fun usageAccessGranted(ctx: Context): Boolean {
+        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        @Suppress("DEPRECATION")
+        val mode = ops.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), ctx.packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    fun openUsageAccessSettings(ctx: Context) = start(
+        ctx, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+    )
+
     fun openOverlaySettings(ctx: Context) = start(
         ctx, Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}"))
     )

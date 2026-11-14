@@ -10,6 +10,13 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +64,7 @@ class MainActivity : ComponentActivity() {
             !OemHelper.canOverlay(this) && once("overlay") -> OemHelper.openOverlaySettings(this)
             !OemHelper.isIgnoringBatteryOptimizations(this) && once("battery") ->
                 OemHelper.requestIgnoreBatteryOptimizations(this)
+            !OemHelper.usageAccessGranted(this) && once("usage") -> OemHelper.openUsageAccessSettings(this)
             Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED && once("notif") ->
@@ -114,7 +122,11 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
     val shizukuInstalled = ShizukuHelper.installed(ctx)
     val shizukuRunning = ShizukuHelper.running()
     val shizukuGranted = ShizukuHelper.granted()
-    val allReady = overlayOk && batteryOk
+    val usageOk = OemHelper.usageAccessGranted(ctx)
+    val allReady = overlayOk && batteryOk && usageOk
+    var showKeepPicker by remember { mutableStateOf(false) }
+    var showMediaPicker by remember { mutableStateOf(false) }
+    var pickerTick by remember { mutableStateOf(0) }
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
@@ -128,6 +140,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 Text("首次設定（只需一次）", style = MaterialTheme.typography.titleMedium)
                 Text("${if (overlayOk) "✅" else "⬜"} 顯示邊緣把手（懸浮視窗）")
                 Text("${if (batteryOk) "✅" else "⬜"} 允許背景運行")
+                Text("${if (usageOk) "✅" else "⬜"} 使用狀況存取（用來知道你正在用哪個 App，只在指定 App 顯示把手）")
                 Button(onClick = onSetup) { Text("一鍵完成設定") }
                 Text("系統規定這些授權必須由你親自按同意，App 無法代按。",
                     style = MaterialTheme.typography.bodySmall)
@@ -156,8 +169,8 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("怎麼用", style = MaterialTheme.typography.titleMedium)
-                Text("1. 打開你要用的 App（例如 YouTube、遊戲）。")
-                Text("2. 從螢幕邊緣的細線往內滑，展開選單。")
+                Text("1. 打開你指定的 App（預設：遊戲用掛機、YouTube 用待機聽劇），螢幕邊緣會出現一條細線。")
+                Text("2. 從細線往內滑，展開選單，只會列出適用於這個 App 的功能。")
                 Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，螢幕面板立刻關閉。")
                 Text("4. 要回來時，按一次電源鍵，就是正常的鎖屏畫面，解鎖即可。")
                 Text(
@@ -165,6 +178,30 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         "期間觸控會被攔下，不會誤觸。按電源鍵後影片會停，這是正常的。",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+        }
+
+        // ── 各功能出現在哪些 App ──
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🔋 螢幕關閉掛機", style = MaterialTheme.typography.titleMedium)
+                val keep = remember(pickerTick) { prefs.keepApps }
+                Text(
+                    if (keep == null) "出現在：所有遊戲（預設）" else "出現在：已選的 ${keep.size} 個 App",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = { showKeepPicker = true }) { Text("選擇 App") }
+            }
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🎧 待機聽劇", style = MaterialTheme.typography.titleMedium)
+                val media = remember(pickerTick) { prefs.mediaApps }
+                Text(
+                    if (media == null) "出現在：YouTube（預設）" else "出現在：已選的 ${media.size} 個 App",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = { showMediaPicker = true }) { Text("選擇 App") }
             }
         }
 
@@ -222,4 +259,73 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
             }
         }
     }
+
+    if (showKeepPicker) {
+        AppPickerDialog(
+            title = "🔋 螢幕關閉掛機：在哪些 App 出現",
+            isChecked = { prefs.appliesKeep(it) },
+            onSave = { prefs.keepApps = it; pickerTick++; showKeepPicker = false },
+            onReset = { prefs.keepApps = null; pickerTick++; showKeepPicker = false },
+            onDismiss = { showKeepPicker = false }
+        )
+    }
+    if (showMediaPicker) {
+        AppPickerDialog(
+            title = "🎧 待機聽劇：在哪些 App 出現",
+            isChecked = { prefs.appliesMedia(it) },
+            onSave = { prefs.mediaApps = it; pickerTick++; showMediaPicker = false },
+            onReset = { prefs.mediaApps = null; pickerTick++; showMediaPicker = false },
+            onDismiss = { showMediaPicker = false }
+        )
+    }
+}
+
+private data class AppEntry(val label: String, val pkg: String, val initiallyChecked: Boolean)
+
+@Composable
+private fun AppPickerDialog(
+    title: String,
+    isChecked: (String) -> Boolean,
+    onSave: (Set<String>) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val ctx = LocalContext.current
+    val apps = remember {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        ctx.packageManager.queryIntentActivities(intent, 0)
+            .map { AppEntry(it.loadLabel(ctx.packageManager).toString(), it.activityInfo.packageName, isChecked(it.activityInfo.packageName)) }
+            .filter { it.pkg != ctx.packageName }
+            .distinctBy { it.pkg }
+            // 已勾選的排前面，其餘依名稱排序
+            .sortedWith(compareBy({ !it.initiallyChecked }, { it.label.lowercase() }))
+    }
+    val checked = remember { mutableStateListOf<String>().apply { addAll(apps.filter { it.initiallyChecked }.map { it.pkg }) } }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            LazyColumn {
+                items(apps) { app ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            if (app.pkg in checked) checked.remove(app.pkg) else checked.add(app.pkg)
+                        }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = app.pkg in checked, onCheckedChange = null)
+                        Text(app.label, Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(checked.toSet()) }) { Text("儲存") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onReset) { Text("還原預設") }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        }
+    )
 }

@@ -1,6 +1,8 @@
 package com.idlemate.app
 
 import android.app.Service
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,7 +19,6 @@ import android.os.PowerManager
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -27,24 +28,30 @@ import kotlin.math.abs
 
 /**
  * 螢幕邊緣把手 + 關閉螢幕面板。
- * - 把手：貼邊的一條細線，往內滑（或點一下）展開選單。
- * - 選單按鈕「點一下就執行」：透過 Shizuku 把實體螢幕面板關掉，但系統並未進入睡眠，
- *   所以 YouTube 等 App 不會收到「螢幕關閉」而暫停。雙擊螢幕可恢復。
+ * - 把手只在「使用者指定的 App」位於前景時出現（掛機預設遊戲、聽劇預設 YouTube），
+ *   選單也只列出適用於該 App 的功能。
+ * - 點選單按鈕：透過 Shizuku 關掉螢幕面板，系統不睡眠，App 與影片照常運行。
  */
 class EdgeHandleService : Service() {
     private lateinit var wm: WindowManager
     private lateinit var prefs: Prefs
-    private val handler = Handler(Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())     // 工作階段用（endSession 會清空）
+    private val pollHandler = Handler(Looper.getMainLooper()) // 前景偵測用（獨立，不受影響）
 
     private var handle: View? = null
     private var panel: View? = null
 
+    // 目前前景 App 與適用的功能
+    private var currentPkg: String? = null
+    private var lastPoll = 0L
+    private var showKeep = true
+    private var showMedia = true
+
     // 螢幕面板關閉期間的工作階段
     private var sessionActive = false
-    private var cover: View? = null
+    private var keepAwakeView: View? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-
     private var awaitingWake = false
 
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -57,7 +64,7 @@ class EdgeHandleService : Service() {
                     // 立刻把螢幕叫醒，使用者只按一次電源鍵就看到鎖屏畫面
                     handler.postDelayed({ wakeScreen() }, 200)
                 }
-                // 再按電源鍵亮屏（進入正常鎖屏）時，保險起見再把面板電源設回正常
+                // 亮屏時，保險起見再把面板電源設回正常
                 Intent.ACTION_SCREEN_ON -> if (awaitingWake) {
                     awaitingWake = false
                     runCatching { unregisterReceiver(this) }
@@ -69,12 +76,19 @@ class EdgeHandleService : Service() {
         }
     }
 
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            pollForeground()
+            pollHandler.postDelayed(this, 1000)
+        }
+    }
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private val left get() = prefs.edgeLeft
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(
-            3, Notif.build(this, "邊緣把手", "從螢幕邊緣滑出選單"),
+            3, Notif.build(this, "邊緣把手", "在指定的 App 中從螢幕邊緣滑出選單"),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         if (!OemHelper.canOverlay(this)) { stopSelf(); return START_NOT_STICKY }
@@ -83,7 +97,46 @@ class EdgeHandleService : Service() {
             prefs = Prefs(this)
             showHandle()
         }
+        pollHandler.removeCallbacks(pollRunnable)
+        pollHandler.post(pollRunnable)
         return START_STICKY
+    }
+
+    // ───────────── 前景 App 偵測 ─────────────
+
+    private fun pollForeground() {
+        if (!OemHelper.usageAccessGranted(this)) {
+            // 沒有「使用狀況存取」就無法分辨 App：先在所有 App 顯示兩個功能
+            showKeep = true; showMedia = true
+            updateHandle()
+            return
+        }
+        runCatching {
+            val usm = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val from = if (lastPoll == 0L) now - 24 * 3600_000L else lastPoll - 1500
+            val events = usm.queryEvents(from, now)
+            val e = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(e)
+                @Suppress("DEPRECATION")
+                when (e.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND -> currentPkg = e.packageName
+                    UsageEvents.Event.MOVE_TO_BACKGROUND -> if (e.packageName == currentPkg) currentPkg = null
+                }
+            }
+            lastPoll = now
+        }
+        showKeep = prefs.appliesKeep(currentPkg)
+        showMedia = prefs.appliesMedia(currentPkg)
+        updateHandle()
+    }
+
+    /** 把手只在適用的 App、且沒有選單／工作階段時才顯示。 */
+    private fun updateHandle() {
+        val applicable = showKeep || showMedia
+        handle?.visibility =
+            if (applicable && panel == null && !sessionActive) View.VISIBLE else View.GONE
     }
 
     // ───────────── 邊緣把手 ─────────────
@@ -131,6 +184,7 @@ class EdgeHandleService : Service() {
             }
             true
         }
+        touch.visibility = View.GONE  // 先隱藏，偵測到適用的 App 才顯示
         wm.addView(touch, lp)
         handle = touch
     }
@@ -145,7 +199,6 @@ class EdgeHandleService : Service() {
 
     private fun openPanel(y: Int) {
         if (panel != null) return
-        handle?.visibility = View.GONE
 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -154,8 +207,9 @@ class EdgeHandleService : Service() {
             }
             setPadding(0, dp(6), 0, dp(6))
         }
-        box.addView(item("🔋 螢幕關閉掛機") { startSession() })
-        box.addView(item("🎧 待機聽劇") { startSession() })
+        // 只列出適用於目前 App 的功能
+        if (showKeep) box.addView(item("🔋 螢幕關閉掛機") { startSession() })
+        if (showMedia) box.addView(item("🎧 待機聽劇") { startSession() })
         box.addView(item("收起") { closePanel() }.apply { setTextColor(0xFF90A4AE.toInt()) })
 
         box.setOnTouchListener { _, e ->
@@ -166,6 +220,7 @@ class EdgeHandleService : Service() {
         lp.x = dp(6)
         wm.addView(box, lp)
         panel = box
+        updateHandle()
 
         box.translationX = (if (left) -1 else 1) * dp(220).toFloat()
         box.animate().translationX(0f).setDuration(180).start()
@@ -176,7 +231,7 @@ class EdgeHandleService : Service() {
         panel = null
         p.animate().translationX((if (left) -1 else 1) * dp(220).toFloat()).setDuration(150)
             .withEndAction { runCatching { wm.removeView(p) } }.start()
-        if (!sessionActive) handle?.visibility = View.VISIBLE
+        updateHandle()
     }
 
     // ───────────── 關閉螢幕面板 ─────────────
@@ -194,9 +249,9 @@ class EdgeHandleService : Service() {
         }
         if (sessionActive) return
         sessionActive = true
-        handle?.visibility = View.GONE
+        updateHandle()
 
-        addCover()
+        addKeepAwakeWindow()
 
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:panel-off")
@@ -219,21 +274,19 @@ class EdgeHandleService : Service() {
         }, 400)
     }
 
-    /** 全螢幕透明視窗：吃掉所有觸控（避免口袋誤觸）、保持系統清醒。要回來請按電源鍵。 */
-    private fun addCover() {
+    /** 1×1、不接收觸控的透明視窗，只用來讓系統不因螢幕逾時而睡眠。 */
+    private fun addKeepAwakeWindow() {
         val lp = WindowManager.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            1, 1,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.TRANSLUCENT
-        )
-        val v = FrameLayout(this)
-        v.setOnTouchListener { _, _ -> true }
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        val v = View(this)
         wm.addView(v, lp)
-        cover = v
+        keepAwakeView = v
     }
 
     @Suppress("DEPRECATION")
@@ -251,17 +304,18 @@ class EdgeHandleService : Service() {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
-        cover?.let { runCatching { wm.removeView(it) } }; cover = null
+        keepAwakeView?.let { runCatching { wm.removeView(it) } }; keepAwakeView = null
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
         if (restorePanel) {
             ShizukuHelper.setDisplayPower(this, on = true) { DebugLog.add(this, "恢復面板：$it") }
         }
-        handle?.visibility = View.VISIBLE
+        updateHandle()
     }
 
     override fun onDestroy() {
+        pollHandler.removeCallbacksAndMessages(null)
         endSession(restorePanel = true)
         if (awaitingWake) runCatching { unregisterReceiver(screenOffReceiver) }
         panel?.let { runCatching { wm.removeView(it) } }
