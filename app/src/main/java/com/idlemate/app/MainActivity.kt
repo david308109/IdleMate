@@ -47,11 +47,31 @@ class MainActivity : ComponentActivity() {
     // 回到畫面時重新讀取授權與開關狀態
     private var refreshTick by mutableStateOf(0)
 
-    // 唯一需要的設定：協助工具
+    // 自動設定：缺哪個權限就直接帶到那個設定頁，依序進行；每一頁這一輪只帶一次，避免使用者不開時一直被拉回去
+    private var setupRunning = false
+    private var autoSetupDone = false
+    private val attempted = mutableSetOf<String>()
+
     private fun startSetup() {
-        if (!IdleAccessibilityService.isEnabled(this)) {
-            Toast.makeText(this, "在清單中找到「IdleMate」並開啟", Toast.LENGTH_LONG).show()
-            IdleAccessibilityService.openSettings(this)
+        attempted.clear(); setupRunning = true; continueSetup()
+    }
+
+    private fun continueSetup() {
+        if (!setupRunning) return
+        fun once(key: String) = attempted.add(key)
+        when {
+            !IdleAccessibilityService.isEnabled(this) && once("a11y") -> {
+                Toast.makeText(this, "第 1 步：在清單中找到「IdleMate」並開啟", Toast.LENGTH_LONG).show()
+                IdleAccessibilityService.openSettings(this)
+            }
+            !OemHelper.canTurnScreenOn(this) && once("screenon") -> {
+                Toast.makeText(this, "第 2 步：在清單中找到「IdleMate」並開啟「點亮螢幕」", Toast.LENGTH_LONG).show()
+                OemHelper.openTurnScreenOnSettings(this)
+            }
+            else -> {
+                setupRunning = false
+                if (allReady(this)) Toast.makeText(this, "設定完成，打開 YouTube 或遊戲，從螢幕邊緣滑出選單即可使用", Toast.LENGTH_LONG).show()
+            }
         }
         refreshTick++
     }
@@ -63,15 +83,21 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
             }
         }
-        // 第一次打開自動帶到設定
-        if (!Prefs(this).setupDone) { Prefs(this).setupDone = true; startSetup() }
     }
 
     override fun onResume() {
         super.onResume()
+        when {
+            setupRunning -> continueSetup()
+            // 打開 App 時若還有權限沒開，直接帶過去（每次打開 App 只自動帶一輪）
+            !autoSetupDone && !allReady(this) -> { autoSetupDone = true; startSetup() }
+        }
         refreshTick++
     }
 }
+
+private fun allReady(ctx: Context) =
+    IdleAccessibilityService.isEnabled(ctx) && OemHelper.canTurnScreenOn(ctx)
 
 private fun Context.appLabel(pkg: String): String = runCatching {
     packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -98,39 +124,33 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         Text("IdleMate", style = MaterialTheme.typography.headlineMedium)
 
         // ── 設定（只需一次） ──
-        if (!a11yOk) Card(Modifier.fillMaxWidth()) {
+        val screenOnOk = OemHelper.canTurnScreenOn(ctx)
+        if (!a11yOk || !screenOnOk) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("設定（只需一次）", style = MaterialTheme.typography.titleMedium)
-                Text("在「協助工具」裡開啟「IdleMate」，就完成了。")
-                Button(onClick = onSetup) { Text("前往開啟") }
+                Text("${if (a11yOk) "✅" else "⬜"} 協助工具：開啟「IdleMate」")
+                Text("${if (screenOnOk) "✅" else "⬜"} 點亮螢幕：開啟「IdleMate」（鎖定後自動亮屏，直接看到鎖屏）")
+                Button(onClick = onSetup) { Text("開始設定") }
                 Text(
-                    "開啟時系統會顯示「可讀取螢幕內容」等說明。IdleMate 實際上不讀取任何畫面內容，" +
+                    "Android 規定權限必須由你親手開啟，App 無法自己開；按「開始設定」會直接帶你到對應的頁面。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "開啟協助工具時系統會顯示「可讀取螢幕內容」等說明。IdleMate 實際上不讀取任何畫面內容，" +
                         "只用來顯示邊緣把手、全黑畫面、知道目前的 App 與鎖定螢幕，也沒有網路權限。",
                     style = MaterialTheme.typography.bodySmall
                 )
-                Text(
-                    "如果開關是灰色、按不下去：到 設定 → 應用程式 → IdleMate → 右上角「⋮」→「允許受限制的設定」，再回來開啟。",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedButton(onClick = {
-                    runCatching {
-                        ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            android.net.Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
-                }) { Text("開啟 IdleMate 的應用程式資訊") }
-            }
-        }
-
-        // ── 選填：點亮螢幕（亮屏比較自然） ──
-        if (a11yOk && !OemHelper.canTurnScreenOn(ctx)) Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("選填：亮屏更自然", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "不開也能用。開啟「點亮螢幕」後，點兩下或按電源鍵時會由系統直接亮屏，看起來比較自然。",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedButton(onClick = { OemHelper.openTurnScreenOnSettings(ctx) }) {
-                    Text("前往「點亮螢幕」，開啟 IdleMate")
+                if (!a11yOk) {
+                    Text(
+                        "如果協助工具的開關是灰色、按不下去：到 設定 → 應用程式 → IdleMate → 右上角「⋮」→「允許受限制的設定」，再回來開啟。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    }) { Text("開啟 IdleMate 的應用程式資訊") }
                 }
             }
         }

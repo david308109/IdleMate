@@ -327,25 +327,14 @@ class IdleAccessibilityService : AccessibilityService() {
         updateHandle()
     }
 
-    /**
-     * 亮屏：
-     * - 有「點亮螢幕」權限 → 系統直接亮屏（最自然）。
-     * - 沒有 → 改用會點亮螢幕的透明小畫面（不需要權限，但亮屏動畫不同）。
-     */
+    /** 亮屏：鎖定後由系統直接點亮螢幕，使用者看到的就是鎖屏畫面（需要「點亮螢幕」權限，Android 14 起）。 */
     @Suppress("DEPRECATION")
     private fun wakeScreen() {
-        if (OemHelper.canTurnScreenOn(this)) {
-            val ok = runCatching {
-                (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
-                ).acquire(2000)
-            }.isSuccess
-            if (ok) { DebugLog.add(this, "亮屏：系統直接亮屏"); return }
-        }
         runCatching {
-            startActivity(Intent(this, WakeActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-            ))
-        }.onFailure { DebugLog.add(this, "亮屏畫面失敗：$it") }
+            (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
+            ).acquire(2000)
+        }.onFailure { DebugLog.add(this, "亮屏失敗：$it") }
+        if (!OemHelper.canTurnScreenOn(this)) DebugLog.add(this, "沒有「點亮螢幕」權限，螢幕可能不會自動亮起")
     }
 }
