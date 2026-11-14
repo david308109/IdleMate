@@ -20,6 +20,17 @@ jobs:
         with:
           gradle-version: 8.9
 
+      - name: Ensure fixed debug keystore
+        run: |
+          if [ ! -f app/idlemate-debug.keystore ]; then
+            keytool -genkeypair -keystore app/idlemate-debug.keystore -storepass android -keypass android               -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=IdleMate Debug,O=IdleMate,C=TW"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-keystore
+          path: app/idlemate-debug.keystore
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
 

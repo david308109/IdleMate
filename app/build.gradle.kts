@@ -16,6 +16,19 @@ android {
         versionName = "0.1.0"
     }
 
+    // 固定的除錯簽章：每次編譯的 APK 簽章相同，才能直接覆蓋安裝
+    signingConfigs {
+        getByName("debug") {
+            val ks = file("idlemate-debug.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
