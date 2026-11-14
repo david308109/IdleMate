@@ -49,6 +49,7 @@ class EdgeHandleService : Service() {
 
     // 螢幕面板關閉期間的工作階段
     private var sessionActive = false
+    private var touchWatcher: View? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var awaitingWake = false
@@ -264,11 +265,33 @@ class EdgeHandleService : Service() {
         handler.postDelayed({
             if (!sessionActive) return@postDelayed
             ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
-            // 實驗：讓手機進入鎖定狀態（顯示鎖屏）但不睡眠，觀察 YouTube 會不會繼續播
-            handler.postDelayed({
-                if (sessionActive) ShizukuHelper.lockKeyguard(this) { DebugLog.add(this, "鎖屏：$it") }
-            }, 600)
+            addTouchWatcher()
         }, 400)
+    }
+
+    /**
+     * 1×1 透明視窗，只「旁聽」螢幕上的任何觸碰（觸碰仍照常傳給底下的 App）。
+     * 面板關閉後點一下螢幕 → 面板恢復並顯示鎖屏畫面。
+     */
+    private fun addTouchWatcher() {
+        val lp = WindowManager.LayoutParams(
+            1, 1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        val v = View(this)
+        v.setOnTouchListener { _, e ->
+            if (e.action == MotionEvent.ACTION_OUTSIDE) {
+                DebugLog.add(this, "偵測到觸碰 → 恢復面板並顯示鎖屏")
+                endSession(restorePanel = true, lockAfterRestore = true)
+            }
+            false
+        }
+        runCatching { wm.addView(v, lp) }
+        touchWatcher = v
     }
 
     @Suppress("DEPRECATION")
@@ -282,15 +305,26 @@ class EdgeHandleService : Service() {
         ShizukuHelper.wakeUp(this) { DebugLog.add(this, "喚醒：$it") }
     }
 
-    private fun endSession(restorePanel: Boolean, keepReceiver: Boolean = false) {
+    private fun endSession(
+        restorePanel: Boolean,
+        keepReceiver: Boolean = false,
+        lockAfterRestore: Boolean = false
+    ) {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
+        touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
         if (restorePanel) {
-            ShizukuHelper.setDisplayPower(this, on = true) { DebugLog.add(this, "恢復面板：$it") }
+            ShizukuHelper.setDisplayPower(this, on = true) {
+                DebugLog.add(this, "恢復面板：$it")
+                // 恢復後顯示鎖屏畫面（需要解鎖才能回到 App）
+                if (lockAfterRestore) {
+                    ShizukuHelper.lockKeyguard(this) { r -> DebugLog.add(this, "鎖屏：$r") }
+                }
+            }
         }
         updateHandle()
     }
