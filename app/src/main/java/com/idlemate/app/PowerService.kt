@@ -109,34 +109,56 @@ class PowerService : IPowerService.Stub() {
     override fun touchStamp(): Long = lastTouch
 
     @Volatile private var logProc: Process? = null
+    @Volatile private var snapRun = false
     private val logLines = java.util.Collections.synchronizedList(ArrayList<String>())
+
+    private fun hhmmss() = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
 
     override fun startLogCapture(): String = synchronized(this) {
         runCatching { logProc?.destroy() }
+        snapRun = false
         logLines.clear()
         try {
-            runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-c")).waitFor() }
+            // 三個緩衝區都要清，否則會撈到之前的歷史
+            runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-c")).waitFor() }
             val p = Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-v", "time"))
             logProc = p
-            val keys = listOf("youtube", "freez", "mediasession", "audiofocus", "screen_off", "screenoff",
-                "goingtosleep", "keyguard", "pause", "wakefulness", "cached", "am_kill", "am_proc_died", "am_freeze")
+            val keys = listOf("youtube", "mediasession", "audiofocus", "screen_off", "goingtosleep", "wm_set_keyguard_shown")
             Thread {
                 try {
                     p.inputStream.bufferedReader().forEachLine { l ->
                         val low = l.lowercase()
-                        if (keys.any { low.contains(it) } && logLines.size < 400) logLines.add(l.take(220))
+                        if (keys.any { low.contains(it) } && logLines.size < 300) logLines.add(l.take(200))
                     }
                 } catch (_: Throwable) {}
             }.apply { isDaemon = true; start() }
-            "已開始擷取日誌"
+            // 每 2 秒記錄一次媒體工作階段狀態，變化時才寫入
+            snapRun = true
+            Thread {
+                var prev = ""
+                while (snapRun) {
+                    try {
+                        val q = Runtime.getRuntime().exec(arrayOf("dumpsys", "media_session"))
+                        val txt = q.inputStream.bufferedReader().readText()
+                        val cond = txt.lines().map { it.trim() }
+                            .filter { it.contains("youtube", true) || it.startsWith("state=PlaybackState") || it.contains("active=") }
+                            .take(12).joinToString(" | ").take(400)
+                        if (cond != prev) { prev = cond; if (logLines.size < 300) logLines.add("[" + hhmmss() + "] 媒體工作階段: " + cond) }
+                    } catch (_: Throwable) {}
+                    try { Thread.sleep(2000) } catch (_: Throwable) {}
+                }
+            }.apply { isDaemon = true; start() }
+            "已開始擷取日誌（" + hhmmss() + "）"
         } catch (t: Throwable) { "擷取日誌失敗：${describe(t)}" }
     }
 
     override fun stopLogCapture(): String = synchronized(this) {
+        snapRun = false
         runCatching { logProc?.destroy() }
         logProc = null
         val yt = synchronized(logLines) { logLines.toList() }
-        if (yt.isEmpty()) "（沒有擷取到相關日誌）" else yt.joinToString(System.lineSeparator())
+        "結束 " + hhmmss() + System.lineSeparator() +
+            (if (yt.isEmpty()) "（沒有擷取到相關日誌）" else yt.joinToString(System.lineSeparator()))
     }
 
     private fun describe(t: Throwable): String {
