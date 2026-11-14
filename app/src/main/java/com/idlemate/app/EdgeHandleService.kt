@@ -49,7 +49,6 @@ class EdgeHandleService : Service() {
 
     // 螢幕面板關閉期間的工作階段
     private var sessionActive = false
-    private var keepAwakeView: View? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var awaitingWake = false
@@ -251,8 +250,6 @@ class EdgeHandleService : Service() {
         sessionActive = true
         updateHandle()
 
-        addKeepAwakeWindow()
-
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:panel-off")
             .apply { setReferenceCounted(false); acquire() }
@@ -274,21 +271,6 @@ class EdgeHandleService : Service() {
         }, 400)
     }
 
-    /** 1×1、不接收觸控的透明視窗，只用來讓系統不因螢幕逾時而睡眠。 */
-    private fun addKeepAwakeWindow() {
-        val lp = WindowManager.LayoutParams(
-            1, 1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
-        val v = View(this)
-        wm.addView(v, lp)
-        keepAwakeView = v
-    }
-
     @Suppress("DEPRECATION")
     private fun wakeScreen() {
         // 方法一：帶「喚醒」旗標的喚醒鎖；方法二：以 shell 身分送出喚醒按鍵
@@ -304,7 +286,6 @@ class EdgeHandleService : Service() {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
-        keepAwakeView?.let { runCatching { wm.removeView(it) } }; keepAwakeView = null
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
