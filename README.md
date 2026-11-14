@@ -7,6 +7,18 @@
 
 不需要 root，也不需要 Shizuku。
 
+## 下載
+
+到 [Releases](https://github.com/david308109/IdleMate/releases/latest) 下載最新的 `IdleMate-x.y.z.apk`，在手機上點開安裝。
+
+### 安裝時會看到的提示
+
+1. **Play Protect「建議掃描應用程式」**：IdleMate 不是從 Play 商店安裝的，所以會出現這個提示。可以按掃描，或直接安裝。
+2. **協助工具開關是灰色（受限制的設定）**：Android 對所有從檔案安裝的 App 都會這樣。打開 IdleMate 後照著畫面引導做就好：
+   1. 到協助工具，點一下灰色的 IdleMate，看到提示後按「確定」。
+   2. 到應用程式資訊，點右上角「⋮」→「允許受限制的設定」。
+   3. 回到協助工具，開啟 IdleMate。
+
 ## 怎麼用
 
 1. 打開指定的 App（預設：所有遊戲用「掛機」、YouTube 用「聽劇」），螢幕邊緣會出現一條細線（把手）。
@@ -32,14 +44,7 @@ IdleMate **不讀取任何畫面內容**（`canRetrieveWindowContent=false`）�
 
 第一次打開時會跳出說明視窗，並帶你到對應的設定頁。
 
-### 從檔案安裝時：受限制的設定
-
-Android 13 起，從檔案安裝的 App 會被系統鎖住協助工具。IdleMate 會偵測安裝來源，自動加入兩個解除步驟：
-
-1. 到協助工具，點一下灰色的 IdleMate，看到提示後按「確定」。
-2. 到應用程式資訊，點右上角「⋮」→「允許受限制的設定」。
-
-從 Play 商店或 adb 安裝的不受影響。
+從檔案安裝的話，IdleMate 會偵測安裝來源，自動加入解除「受限制的設定」的步驟（見[安裝時會看到的提示](#安裝時會看到的提示)）。從 Play 商店或 adb 安裝的不受影響。
 
 ## 運作原理
 
@@ -78,8 +83,6 @@ app/src/main/java/com/idlemate/app/
 | `IDLEMATE_KEYSTORE_B64` | PKCS12 金鑰檔的 base64 |
 | `IDLEMATE_KEYSTORE_PASSWORD` | 金鑰密碼 |
 | `IDLEMATE_KEY_ALIAS` | 金鑰別名 |
-| `RELEASES_TOKEN` | 只能寫入 [IdleMate-releases](https://github.com/david308109/IdleMate-releases) 的 fine-grained token（Contents: Read and write） |
-
 > 金鑰遺失就無法再發布可以覆蓋安裝的更新，請務必另外備份。換簽章時，使用者必須先解除安裝舊版。
 
 本機建置 debug 版用的是 repo 裡固定的 `idlemate-debug.keystore`：
@@ -90,7 +93,7 @@ gradle assembleDebug
 
 ### 發布新版本
 
-程式碼是私人的，安裝檔發布在公開的 [IdleMate-releases](https://github.com/david308109/IdleMate-releases/releases)。推一個 `v` 開頭的標籤，就會自動建置、簽章並發布：
+推一個 `v` 開頭的標籤，就會自動建置、簽章並發布到 [Releases](https://github.com/david308109/IdleMate/releases)：
 
 ```sh
 git tag v0.2.0

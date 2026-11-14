@@ -3,16 +3,15 @@ name: Build APK
 on:
   push:
     branches: [main]
-    # 推 v 開頭的標籤（例如 v0.2.0）時，建置並發布到公開的 IdleMate-releases
+    # 推 v 開頭的標籤（例如 v0.2.0）時，建置並發布到 Releases
     tags: ['v*']
   workflow_dispatch:
-
-env:
-  RELEASE_REPO: david308109/IdleMate-releases
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 發布 Releases 需要
     steps:
       - uses: actions/checkout@v4
 
@@ -58,11 +57,11 @@ jobs:
           name: IdleMate-release-apk
           path: app/build/outputs/apk/release/*.apk
 
-      # 只有推標籤時才發布。RELEASES_TOKEN 是只能寫入 IdleMate-releases 的 fine-grained token
-      - name: Publish to IdleMate-releases
+      # 只有推標籤時才發布
+      - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           APK="IdleMate-${IDLEMATE_VERSION_NAME}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
@@ -76,9 +75,9 @@ jobs:
             echo
             echo "## 安裝"
             echo
-            echo "下載 \`$APK\` 後在手機上點開安裝。第一次安裝請參考 [README](https://github.com/${RELEASE_REPO}#安裝時會看到的提示)。"
+            echo "下載 \`$APK\` 後在手機上點開安裝。第一次安裝請參考 [README](https://github.com/${GITHUB_REPOSITORY}#安裝時會看到的提示)。"
           } > notes.md
           gh release create "$GITHUB_REF_NAME" "$APK" \
-            --repo "$RELEASE_REPO" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "IdleMate $IDLEMATE_VERSION_NAME" \
             --notes-file notes.md
