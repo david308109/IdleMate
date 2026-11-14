@@ -5,18 +5,6 @@ import android.content.Context
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("idlemate", Context.MODE_PRIVATE)
 
-    var keepAliveOn: Boolean
-        get() = sp.getBoolean("keepAliveOn", false)
-        set(v) = sp.edit().putBoolean("keepAliveOn", v).apply()
-
-    var targetPackage: String?
-        get() = sp.getString("targetPackage", null)
-        set(v) = sp.edit().putString("targetPackage", v).apply()
-
-    var mediaResumeOn: Boolean
-        get() = sp.getBoolean("mediaResumeOn", false)
-        set(v) = sp.edit().putBoolean("mediaResumeOn", v).apply()
-
     /** 是否已跑過首次一鍵設定 */
     var setupDone: Boolean
         get() = sp.getBoolean("setupDone", false)
