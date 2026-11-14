@@ -29,4 +29,8 @@ interface IPowerService {
 
     // 診斷：探測觸控驅動 / 電源 HAL 可能的控制入口（列出、標示能否讀寫）
     String probeTouch() = 11;
+
+    // 診斷：完整日誌存檔到「下載」資料夾（含每 2 秒的系統狀態快照）
+    String startFullCapture() = 12;
+    String stopFullCapture() = 13;
 }

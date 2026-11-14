@@ -62,7 +62,7 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power3").version(15)
+            .daemon(false).processNameSuffix("power3").version(16)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
     }
 
@@ -104,6 +104,18 @@ object ShizukuHelper {
     fun startLogCapture(ctx: Context, done: (String) -> Unit) {
         withService(ctx.applicationContext) { svc ->
             executor.execute { done(runCatching { svc.startLogCapture() }.getOrElse { "呼叫失敗：$it" }) }
+        }
+    }
+
+    fun startFullCapture(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            executor.execute { done(runCatching { svc.startFullCapture() }.getOrElse { "呼叫失敗：$it" }) }
+        }
+    }
+
+    fun stopFullCapture(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            executor.execute { done(runCatching { svc.stopFullCapture() }.getOrElse { "呼叫失敗：$it" }) }
         }
     }
 

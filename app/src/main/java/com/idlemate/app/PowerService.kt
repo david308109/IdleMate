@@ -190,6 +190,67 @@ class PowerService : IPowerService.Stub() {
         } catch (t: Throwable) { "擷取日誌失敗：${describe(t)}" }
     }
 
+    @Volatile private var fullProc: Process? = null
+    @Volatile private var fullRun = false
+    @Volatile private var fullLog: java.io.File? = null
+    @Volatile private var fullState: java.io.File? = null
+
+    override fun startFullCapture(): String = synchronized(this) {
+        stopFullInternal()
+        try {
+            val dir = java.io.File("/storage/emulated/0/Download")
+            dir.mkdirs()
+            val stamp = java.text.SimpleDateFormat("MMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            val logFile = java.io.File(dir, "IdleMate_log_$stamp.txt")
+            val stateFile = java.io.File(dir, "IdleMate_state_$stamp.txt")
+            fullLog = logFile; fullState = stateFile
+            runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-b", "all", "-c")).waitFor() }
+            fullProc = Runtime.getRuntime().exec(arrayOf(
+                "logcat", "-b", "main,system,events,crash", "-v", "threadtime", "-f", logFile.absolutePath
+            ))
+            fullRun = true
+            Thread {
+                val w = try { java.io.FileWriter(stateFile, true) } catch (t: Throwable) { null }
+                val nl = System.lineSeparator()
+                w?.write("裝置：" + Build.MANUFACTURER + " " + Build.MODEL + "  SDK=" + Build.VERSION.SDK_INT + nl)
+                while (fullRun) {
+                    try {
+                        val sb = StringBuilder("===== " + hhmmss() + " =====" + nl)
+                        sb.append("[activity]").append(nl).append(runCmd("sh", "-c",
+                            "dumpsys activity activities | grep -i -E 'ResumedActivity|sleep|keyguard|occlud' | head -25")).append(nl)
+                        sb.append("[window]").append(nl).append(runCmd("sh", "-c",
+                            "dumpsys window | grep -i -E 'mCurrentFocus|mFocusedApp|SleepToken|mKeyguard|mAwake|mScreenOn|mDreaming' | head -25")).append(nl)
+                        sb.append("[power]").append(nl).append(runCmd("sh", "-c",
+                            "dumpsys power | grep -i -E 'mWakefulness=|mInteractive|Display Power|mHoldingDisplaySuspendBlocker|mScreenBrightness' | head -15")).append(nl)
+                        sb.append("[display]").append(nl).append(runCmd("sh", "-c",
+                            "dumpsys display | grep -i -E 'mState=|mScreenState|mPendingScreenState|Display Power' | head -10")).append(nl)
+                        sb.append("[media]").append(nl).append(runCmd("sh", "-c",
+                            "dumpsys media_session | grep -i -E 'package=|state=|active=' | head -20")).append(nl)
+                        w?.write(sb.toString()); w?.flush()
+                    } catch (_: Throwable) {}
+                    try { Thread.sleep(2000) } catch (_: Throwable) {}
+                }
+                runCatching { w?.close() }
+            }.apply { isDaemon = true; start() }
+            "已開始完整存檔（" + hhmmss() + "）\n日誌：" + logFile.absolutePath + "\n狀態：" + stateFile.absolutePath
+        } catch (t: Throwable) { "完整存檔失敗：${describe(t)}" }
+    }
+
+    private fun stopFullInternal() {
+        fullRun = false
+        runCatching { fullProc?.destroy() }
+        fullProc = null
+    }
+
+    override fun stopFullCapture(): String = synchronized(this) {
+        stopFullInternal()
+        try { Thread.sleep(500) } catch (_: Throwable) {}
+        val l = fullLog; val s = fullState
+        fun info(f: java.io.File?) = if (f == null) "（無）" else f.absolutePath + "（" + (if (f.exists()) "${f.length() / 1024} KB" else "不存在") + "）"
+        "已結束完整存檔（" + hhmmss() + "）\n日誌：" + info(l) + "\n狀態：" + info(s) +
+            "\n請把這兩個檔案從手機的「下載」資料夾傳到電腦。"
+    }
+
     override fun probeTouch(): String {
         val nl = System.lineSeparator()
         val sb = StringBuilder("探測 " + hhmmss() + nl)
