@@ -254,7 +254,6 @@ class IdleAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
                     if (moving) { saveHandleY(lp.y); setThick(false) }
-                    else if (!moved && !opened && e.actionMasked == MotionEvent.ACTION_UP) openPanel(lp.y)  // 點一下也展開
                     moving = false
                 }
             }
