@@ -23,14 +23,38 @@
             </intent-filter>
         </activity>
 
-        <!-- 螢幕邊緣把手 + 黑屏模式（懸浮視窗） -->
+        <!-- 螢幕邊緣把手（懸浮視窗）+ 鎖屏後維持運作／恢復播放 -->
         <service
             android:name=".EdgeHandleService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Shows an edge overlay handle and a black-screen overlay that keeps apps running" />
+                android:value="Shows an edge overlay handle, locks the screen on demand and resumes media playback" />
+        </service>
+
+        <!-- 裝置管理員：僅用來鎖定螢幕 -->
+        <receiver
+            android:name=".IdleDeviceAdmin"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 通知存取權：才能直接控制其他 App（例如 YouTube）的播放器 -->
+        <service
+            android:name=".MediaListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

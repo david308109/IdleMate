@@ -2,6 +2,7 @@ package com.idlemate.app
 
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -10,30 +11,30 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
-import android.media.AudioPlaybackConfiguration
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import kotlin.math.abs
 
 /**
- * 螢幕邊緣把手 + 黑屏模式。
+ * 螢幕邊緣把手 + 一鍵鎖屏。
  * - 把手：貼邊的一條細線，往內滑（或點一下）展開選單。
- * - 選單按鈕「點一下就執行」：整個螢幕蓋上全黑、亮度最低的畫面（看起來像關螢幕），
- *   但系統仍認為螢幕開著，所以 App 與影音不會被暫停。雙擊螢幕即可恢復。
+ * - 選單按鈕「點一下就執行」：真的把螢幕鎖掉，並在鎖屏期間
+ *   ① 持有 CPU / Wi-Fi 鎖讓 App 繼續運作；
+ *   ② 若鎖屏前正在播放聲音，鎖屏後 App 把播放暫停時，直接對它的播放器下「播放」。
  */
 class EdgeHandleService : Service() {
     private lateinit var wm: WindowManager
@@ -43,14 +44,19 @@ class EdgeHandleService : Service() {
     private var handle: View? = null
     private var panel: View? = null
 
-    private var blackout: View? = null
+    // 鎖屏工作階段
+    private var sessionActive = false
+    private var wasPlaying = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-    private var audioCb: AudioManager.AudioPlaybackCallback? = null
 
-    private val screenOffReceiver = object : BroadcastReceiver() {
-        // 使用者在黑屏時按電源鍵 → 變成真的鎖屏，黑色畫面就不該再蓋著
-        override fun onReceive(context: Context, intent: Intent) = endBlackout()
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> onScreenOff()
+                Intent.ACTION_SCREEN_ON -> endSession()   // 使用者回來了，結束這次掛機
+            }
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -138,8 +144,8 @@ class EdgeHandleService : Service() {
             }
             setPadding(0, dp(6), 0, dp(6))
         }
-        box.addView(item("🔋 螢幕關閉掛機") { startBlackout(mediaMode = false) })
-        box.addView(item("🎧 待機聽劇") { startBlackout(mediaMode = true) })
+        box.addView(item("🔋 螢幕關閉掛機") { lockAndKeep(resumeAudio = false) })
+        box.addView(item("🎧 待機聽劇") { lockAndKeep(resumeAudio = true) })
         box.addView(item("收起") { closePanel() }.apply { setTextColor(0xFF90A4AE.toInt()) })
 
         box.setOnTouchListener { _, e ->
@@ -163,106 +169,71 @@ class EdgeHandleService : Service() {
         handle?.visibility = View.VISIBLE
     }
 
-    // ───────────── 黑屏模式 ─────────────
+    // ───────────── 一鍵鎖屏 ─────────────
 
-    @Suppress("DEPRECATION")
-    private fun startBlackout(mediaMode: Boolean) {
-        if (blackout != null) return
+    private fun lockAndKeep(resumeAudio: Boolean) {
         closePanel()
-        handle?.visibility = View.GONE
-
-        val lp = WindowManager.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-            PixelFormat.OPAQUE
-        ).apply {
-            screenBrightness = 0f   // 亮度壓到最低
-            if (Build.VERSION.SDK_INT >= 28) {
-                layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
+        if (!ScreenLock.isAdminActive(this)) {
+            ScreenLock.requestAdmin(this)
+            Toast.makeText(this, "請先啟用「裝置管理員」，才能自動關閉螢幕", Toast.LENGTH_LONG).show()
+            return
         }
+        endSession()
+        sessionActive = true
+        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+        wasPlaying = resumeAudio && am.isMusicActive
 
-        val hint = TextView(this).apply {
-            text = "雙擊螢幕喚醒"
-            setTextColor(0xFF555555.toInt())
-            gravity = Gravity.CENTER
-        }
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            addView(hint, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            systemUiVisibility = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        }
-        // 全黑畫面吃掉所有觸控，避免誤觸底下的 App；只有雙擊才會喚醒
-        val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
-            override fun onDoubleTap(e: MotionEvent): Boolean { endBlackout(); return true }
-        })
-        root.setOnTouchListener { _, e -> gestures.onTouchEvent(e); true }
-
-        wm.addView(root, lp)
-        blackout = root
-        handler.postDelayed({ hint.visibility = View.GONE }, 3000)
-
-        // 保持 CPU 與 Wi-Fi 運作
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:blackout")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:session")
             .apply { setReferenceCounted(false); acquire() }
         wifiLock = (applicationContext.getSystemService(WIFI_SERVICE) as WifiManager)
-            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:blackout-wifi")
+            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:session-wifi")
             .apply { setReferenceCounted(false); acquire() }
-        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        registerReceiver(screenReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+        })
 
-        if (mediaMode) watchAudio()
+        // 等選單收起、接收器就緒後再鎖屏
+        handler.postDelayed({ ScreenLock.lockNow(this) }, 400)
     }
 
-    /** 待機聽劇：剛進入黑屏的 10 秒內，若聲音意外停了，就補送一次「播放」。 */
-    private fun watchAudio() {
+    /** 螢幕關掉後，若原本在播放，就反覆確認聲音有沒有被 App 暫停，被暫停就叫它繼續。 */
+    private fun onScreenOff() {
+        if (!sessionActive || !wasPlaying) return
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        val startedAt = System.currentTimeMillis()
-        var wasPlaying = am.isMusicActive
-        val cb = object : AudioManager.AudioPlaybackCallback() {
-            override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
-                val playing = am.isMusicActive
-                if (wasPlaying && !playing && System.currentTimeMillis() - startedAt < 10_000) {
-                    handler.postDelayed({
-                        if (blackout != null && !am.isMusicActive) {
-                            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
-                            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
-                        }
-                    }, 800)
-                }
-                wasPlaying = playing
-            }
+        for (delay in longArrayOf(300, 800, 1500, 3000, 5000, 8000, 12000)) {
+            handler.postDelayed({
+                if (sessionActive && !am.isMusicActive) resumeNow(am)
+            }, delay)
         }
-        am.registerAudioPlaybackCallback(cb, handler)
-        audioCb = cb
     }
 
-    private fun endBlackout() {
-        val v = blackout ?: return
-        blackout = null
-        runCatching { wm.removeView(v) }
-        runCatching { unregisterReceiver(screenOffReceiver) }
-        audioCb?.let { cb ->
-            runCatching { (getSystemService(AUDIO_SERVICE) as AudioManager).unregisterAudioPlaybackCallback(cb) }
+    /** 有通知存取權就直接對播放器下「播放」；否則退回系統媒體鍵。 */
+    private fun resumeNow(am: AudioManager) {
+        val direct = runCatching {
+            val msm = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val sessions = msm.getActiveSessions(ComponentName(this, MediaListener::class.java))
+            val target = sessions.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PAUSED }
+                ?: sessions.firstOrNull()
+            target?.transportControls?.play() ?: error("no session")
+        }.isSuccess
+        if (!direct) {
+            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
         }
-        audioCb = null
+    }
+
+    private fun endSession() {
+        if (!sessionActive) return
+        sessionActive = false
+        handler.removeCallbacksAndMessages(null)
+        runCatching { unregisterReceiver(screenReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
-        handle?.visibility = View.VISIBLE
     }
 
     override fun onDestroy() {
-        endBlackout()
-        handler.removeCallbacksAndMessages(null)
+        endSession()
         panel?.let { runCatching { wm.removeView(it) } }
         handle?.let { runCatching { wm.removeView(it) } }
         panel = null; handle = null

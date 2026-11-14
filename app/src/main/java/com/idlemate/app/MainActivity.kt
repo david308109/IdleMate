@@ -57,6 +57,9 @@ class MainActivity : ComponentActivity() {
             !OemHelper.canOverlay(this) && once("overlay") -> OemHelper.openOverlaySettings(this)
             !OemHelper.isIgnoringBatteryOptimizations(this) && once("battery") ->
                 OemHelper.requestIgnoreBatteryOptimizations(this)
+            !ScreenLock.isAdminActive(this) && once("admin") -> ScreenLock.requestAdmin(this)
+            !OemHelper.isNotificationListenerEnabled(this) && once("listener") ->
+                OemHelper.openNotificationListenerSettings(this)
             Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED && once("notif") ->
@@ -110,7 +113,9 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
 
     val overlayOk = OemHelper.canOverlay(ctx)
     val batteryOk = OemHelper.isIgnoringBatteryOptimizations(ctx)
-    val allReady = overlayOk && batteryOk
+    val adminOk = ScreenLock.isAdminActive(ctx)
+    val listenerOk = OemHelper.isNotificationListenerEnabled(ctx)
+    val allReady = overlayOk && batteryOk && adminOk && listenerOk
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
@@ -124,9 +129,15 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 Text("首次設定（只需一次）", style = MaterialTheme.typography.titleMedium)
                 Text("${if (overlayOk) "✅" else "⬜"} 顯示邊緣把手（懸浮視窗）")
                 Text("${if (batteryOk) "✅" else "⬜"} 允許背景運行")
+                Text("${if (adminOk) "✅" else "⬜"} 啟用裝置管理員（只用來關閉螢幕）")
+                Text("${if (listenerOk) "✅" else "⬜"} 通知存取權（用來讓影片繼續播放）")
                 Button(onClick = onSetup) { Text("一鍵完成設定") }
                 Text("系統規定這些授權必須由你親自按同意，App 無法代按；做完之後點功能就直接生效。",
                     style = MaterialTheme.typography.bodySmall)
+                if (!listenerOk) Text(
+                    "若「通知存取權」的開關是灰色、點不動：設定 → 應用程式 → IdleMate → 右上角 ⋮ → 「允許受限制的設定」，再回來開啟。",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
@@ -136,11 +147,11 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 Text("怎麼用", style = MaterialTheme.typography.titleMedium)
                 Text("1. 打開你要用的 App（例如 YouTube、遊戲）。")
                 Text("2. 從螢幕邊緣的細線往內滑，展開選單。")
-                Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，畫面立刻變全黑、亮度最低，App 照常運行。")
-                Text("4. 要回來時，雙擊螢幕。")
+                Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，螢幕立刻關閉。")
+                Text("4. 鎖屏期間 App 繼續運作；若鎖屏前正在播放，聲音被暫停時會自動叫它繼續。")
                 Text(
-                    "兩個按鈕都是「點一下就執行」，不用開關。黑屏期間手機並未鎖定；" +
-                        "若按電源鍵，會變成真正的鎖屏。",
+                    "兩個按鈕都是「點一下就執行」，不用開關。再次開啟螢幕時這次掛機就結束，需要時再點一次。" +
+                        "「待機聽劇」才會在鎖屏後恢復播放；「掛機」只負責讓 App 繼續運作。",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
