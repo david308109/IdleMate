@@ -12,13 +12,9 @@ object Features {
             ctx.stopService(android.content.Intent(ctx, KeepAliveService::class.java))
             return "掛機已關閉"
         }
-        val target = p.targetPackage ?: return "請先在 IdleMate 內選擇要掛機的 App"
         p.keepAliveOn = true
         ContextCompat.startForegroundService(ctx, android.content.Intent(ctx, KeepAliveService::class.java))
-        ctx.packageManager.getLaunchIntentForPackage(target)?.let {
-            runCatching { ctx.startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        }
-        return "掛機已開啟，可按電源鍵息屏"
+        return "掛機已開啟，現在可按電源鍵息屏"
     }
 
     fun toggleMedia(ctx: Context): String {

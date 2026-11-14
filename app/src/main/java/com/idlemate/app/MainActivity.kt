@@ -41,8 +41,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
-private data class AppEntry(val label: String, val pkg: String)
-
 class MainActivity : ComponentActivity() {
     // 回到畫面時重新讀取授權與開關狀態
     private var refreshTick by mutableStateOf(0)
@@ -103,15 +101,6 @@ class MainActivity : ComponentActivity() {
 private fun startEdge(ctx: Context) =
     ContextCompat.startForegroundService(ctx, Intent(ctx, EdgeHandleService::class.java))
 
-private fun Context.launchableApps(): List<AppEntry> {
-    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    return packageManager.queryIntentActivities(intent, 0)
-        .map { AppEntry(it.loadLabel(packageManager).toString(), it.activityInfo.packageName) }
-        .filter { it.pkg != packageName }
-        .distinctBy { it.pkg }
-        .sortedBy { it.label.lowercase() }
-}
-
 private fun Context.appLabel(pkg: String): String = runCatching {
     packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
 }.getOrDefault(pkg)
@@ -126,9 +115,7 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
     var mediaResume by remember(refreshTick) { mutableStateOf(prefs.mediaResumeOn) }
     var edgeOn by remember(refreshTick) { mutableStateOf(prefs.edgeOn) }
     var edgeLeft by remember(refreshTick) { mutableStateOf(prefs.edgeLeft) }
-    var target by remember(refreshTick) { mutableStateOf(prefs.targetPackage) }
-    var showPicker by remember { mutableStateOf(false) }
-
+    val listenerOk = OemHelper.isNotificationListenerEnabled(ctx)
     val overlayOk = OemHelper.canOverlay(ctx)
     val batteryOk = OemHelper.isIgnoringBatteryOptimizations(ctx)
     val allReady = overlayOk && batteryOk
@@ -191,19 +178,10 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
                     Text("螢幕關閉掛機", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Switch(checked = keepAlive, onCheckedChange = { toast(Features.toggleKeepAlive(ctx)); refresh() })
                 }
-                Text("讓指定 App 在螢幕關閉後繼續運行（前景服務 + CPU/Wi-Fi 鎖）。", style = MaterialTheme.typography.bodySmall)
-                Text("目標 App：${target?.let { ctx.appLabel(it) } ?: "尚未選擇"}")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { showPicker = true }) { Text("選擇 App") }
-                    target?.let { pkg ->
-                        OutlinedButton(onClick = {
-                            ctx.packageManager.getLaunchIntentForPackage(pkg)?.let { ctx.startActivity(it) }
-                        }) { Text("開啟") }
-                        if (OemHelper.isXiaomi) OutlinedButton(onClick = {
-                            OemHelper.openXiaomiBatteryPolicy(ctx, pkg, ctx.appLabel(pkg))
-                        }) { Text("其省電策略") }
-                    }
-                }
+                Text(
+                    "不用選 App：開著要掛機的 App，從螢幕邊緣滑出選單、點一下「螢幕關閉掛機」，再按電源鍵息屏即可。",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
@@ -216,6 +194,14 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
                 }
                 Text("影音 App 在螢幕關閉而暫停時，自動送出「播放」，讓聲音繼續。", style = MaterialTheme.typography.bodySmall)
                 Text("用法：先在影音 App 開始播放，再按電源鍵息屏。", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (listenerOk) "✅ 加強模式已啟用（直接控制播放器）"
+                    else "若息屏後沒有繼續播放，可開啟「加強模式」：授予通知存取權，成功率較高。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (!listenerOk) OutlinedButton(onClick = { OemHelper.openNotificationListenerSettings(ctx) }) {
+                    Text("開啟加強模式")
+                }
             }
         }
 
@@ -232,26 +218,5 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
                 Text(OemHelper.vendorHint(), style = MaterialTheme.typography.bodySmall)
             }
         }
-    }
-
-    if (showPicker) {
-        val apps = remember { ctx.launchableApps() }
-        AlertDialog(
-            onDismissRequest = { showPicker = false },
-            confirmButton = { TextButton(onClick = { showPicker = false }) { Text("取消") } },
-            title = { Text("選擇要掛機的 App") },
-            text = {
-                LazyColumn {
-                    items(apps) { app ->
-                        Text(
-                            app.label,
-                            Modifier.fillMaxWidth().clickable {
-                                target = app.pkg; prefs.targetPackage = app.pkg; showPicker = false
-                            }.padding(vertical = 12.dp)
-                        )
-                    }
-                }
-            }
-        )
     }
 }

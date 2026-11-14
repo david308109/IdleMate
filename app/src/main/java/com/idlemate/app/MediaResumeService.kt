@@ -7,7 +7,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
+import android.content.ComponentName
 import android.media.AudioPlaybackConfiguration
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -70,11 +73,23 @@ class MediaResumeService : Service() {
         val recentlyPlaying = wasPlaying || SystemClock.elapsedRealtime() - stoppedAt < 3000
         if (!recentlyPlaying) return
         // 影音 App 暫停的時機不定，分多次補送播放鍵
-        for (delay in longArrayOf(300, 800, 1500, 3000)) {
+        for (delay in longArrayOf(300, 800, 1500, 3000, 5000, 8000)) {
             handler.postDelayed({
-                if (!screenOn && !am.isMusicActive) sendPlayKey()
+                if (!screenOn && !am.isMusicActive) resumeNow()
             }, delay)
         }
+    }
+
+    /** 有通知存取權就直接對播放器下「播放」；否則退回系統媒體鍵。 */
+    private fun resumeNow() {
+        val direct = runCatching {
+            val msm = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val sessions = msm.getActiveSessions(ComponentName(this, MediaListener::class.java))
+            val target = sessions.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PAUSED }
+                ?: sessions.firstOrNull()
+            target?.transportControls?.play() ?: error("no session")
+        }.isSuccess
+        if (!direct) sendPlayKey()
     }
 
     private fun sendPlayKey() {
