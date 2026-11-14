@@ -27,11 +27,25 @@ android {
                 keyPassword = "android"
             }
         }
+        // 正式簽章：只在 GitHub Actions 裡由加密的 Secrets 提供，程式碼裡沒有簽章檔與密碼
+        create("release") {
+            val path = System.getenv("IDLEMATE_KEYSTORE_FILE")
+            if (!path.isNullOrBlank()) {
+                storeFile = file(path)
+                storeType = "pkcs12"
+                storePassword = System.getenv("IDLEMATE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("IDLEMATE_KEY_ALIAS")
+                keyPassword = System.getenv("IDLEMATE_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (!System.getenv("IDLEMATE_KEYSTORE_FILE").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

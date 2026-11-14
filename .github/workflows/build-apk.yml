@@ -20,21 +20,25 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Ensure fixed debug keystore
+      # 正式簽章：從加密的 Secrets 還原到暫存位置（不會進到程式碼或 artifact）
+      - name: Restore release keystore
+        env:
+          KS_B64: ${{ secrets.IDLEMATE_KEYSTORE_B64 }}
         run: |
-          if [ ! -f app/idlemate-debug.keystore ]; then
-            keytool -genkeypair -keystore app/idlemate-debug.keystore -storepass android -keypass android               -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=IdleMate Debug,O=IdleMate,C=TW"
-          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/idlemate-release.p12"
+          echo "IDLEMATE_KEYSTORE_FILE=$RUNNER_TEMP/idlemate-release.p12" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          IDLEMATE_KEYSTORE_PASSWORD: ${{ secrets.IDLEMATE_KEYSTORE_PASSWORD }}
+          IDLEMATE_KEY_ALIAS: ${{ secrets.IDLEMATE_KEY_ALIAS }}
+        run: gradle assembleRelease --no-daemon
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/idlemate-release.p12"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: debug-keystore
-          path: app/idlemate-debug.keystore
-
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: IdleMate-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: IdleMate-release-apk
+          path: app/build/outputs/apk/release/*.apk
