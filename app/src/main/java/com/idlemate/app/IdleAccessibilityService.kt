@@ -222,7 +222,7 @@ class IdleAccessibilityService : AccessibilityService() {
 
         val slop = dp(8)
         var downX = 0f; var downY = 0f; var startY = 0
-        var moving = false   // 長按 1 秒後進入移動模式
+        var moving = false   // 長按 0.5 秒後進入移動模式
         var moved = false    // 手指已經滑動（不算點一下）
         var opened = false
         val longPress = Runnable {
@@ -235,7 +235,7 @@ class IdleAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; startY = lp.y
                     moving = false; moved = false; opened = false
-                    handler.postDelayed(longPress, 1000)
+                    handler.postDelayed(longPress, 500)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (if (onLeft) e.rawX - downX else downX - e.rawX)
