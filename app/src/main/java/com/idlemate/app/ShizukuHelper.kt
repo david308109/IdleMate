@@ -62,7 +62,7 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(4)
+            .daemon(false).processNameSuffix("power").version(5)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
     }
 

@@ -61,8 +61,8 @@ class EdgeHandleService : Service() {
                 Intent.ACTION_SCREEN_OFF -> if (sessionActive) {
                     endSession(restorePanel = false, keepReceiver = true)
                     awaitingWake = true
-                    // 立刻把螢幕叫醒，使用者只按一次電源鍵就看到鎖屏畫面
-                    handler.postDelayed({ wakeScreen() }, 200)
+                    // 立刻把螢幕叫醒（不等待），使用者只按一次電源鍵就看到鎖屏畫面
+                    wakeScreen()
                 }
                 // 亮屏時，保險起見再把面板電源設回正常
                 Intent.ACTION_SCREEN_ON -> if (awaitingWake) {

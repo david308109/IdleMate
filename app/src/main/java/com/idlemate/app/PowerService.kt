@@ -20,10 +20,30 @@ class PowerService : IPowerService.Stub() {
         try { apply(on) } catch (t: Throwable) { "未預期的錯誤：${describe(t)}" }
     }
 
-    override fun wakeUp(): String = try {
-        val p = Runtime.getRuntime().exec(arrayOf("input", "keyevent", "224")) // KEYCODE_WAKEUP
-        "喚醒按鍵已送出，結束碼 ${p.waitFor()}"
-    } catch (t: Throwable) { "喚醒失敗：${describe(t)}" }
+    /** 優先直接呼叫電源服務 wakeUp（很快）；失敗才退回啟動 input 指令（較慢）。 */
+    override fun wakeUp(): String {
+        val t0 = System.currentTimeMillis()
+        try {
+            val sm = Class.forName("android.os.ServiceManager")
+            val binder = sm.getMethod("getService", String::class.java).invoke(null, "power") as IBinder
+            val stub = Class.forName("android.os.IPowerManager\$Stub")
+            val pm = stub.getMethod("asInterface", IBinder::class.java).invoke(null, binder)!!
+            val m = pm.javaClass.methods.first {
+                it.name == "wakeUp" && it.parameterTypes.contentEquals(
+                    arrayOf(Long::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java, String::class.java)
+                )
+            }
+            // reason 1 = 電源鍵；呼叫端是 shell，所以套件名用 com.android.shell
+            m.invoke(pm, android.os.SystemClock.uptimeMillis(), 1, "IdleMate", "com.android.shell")
+            return "喚醒：電源服務 wakeUp（${System.currentTimeMillis() - t0}ms）"
+        } catch (t: Throwable) {
+            val why = describe(t)
+            return try {
+                val p = Runtime.getRuntime().exec(arrayOf("input", "keyevent", "224")) // KEYCODE_WAKEUP
+                "喚醒：電源服務失敗($why)，改用 input，結束碼 ${p.waitFor()}（${System.currentTimeMillis() - t0}ms）"
+            } catch (t2: Throwable) { "喚醒失敗：$why / ${describe(t2)}" }
+        }
+    }
 
     /** 呼叫 IWindowManager.lockNow：顯示鎖屏，但不像電源鍵那樣讓系統睡眠。 */
     override fun lockKeyguard(): String = try {
