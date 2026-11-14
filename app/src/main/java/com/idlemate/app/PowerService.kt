@@ -112,6 +112,12 @@ class PowerService : IPowerService.Stub() {
     @Volatile private var snapRun = false
     private val logLines = java.util.Collections.synchronizedList(ArrayList<String>())
 
+    private fun runCmd(vararg args: String): String = try {
+        val q = Runtime.getRuntime().exec(arrayOf(*args))
+        val out = q.inputStream.bufferedReader().readText() + q.errorStream.bufferedReader().readText()
+        q.waitFor(); out.trim()
+    } catch (t: Throwable) { "失敗:" + t.javaClass.simpleName }
+
     private fun hhmmss() = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
 
     override fun startLogCapture(): String = synchronized(this) {
@@ -132,20 +138,38 @@ class PowerService : IPowerService.Stub() {
                     }
                 } catch (_: Throwable) {}
             }.apply { isDaemon = true; start() }
-            // 每 2 秒記錄一次媒體工作階段狀態，變化時才寫入
+            // 每秒記錄媒體工作階段狀態；若播放中 → 停止/暫停，就自動送出「播放」指令試試
             snapRun = true
             Thread {
                 var prev = ""
+                var prevState = -1
+                val re = Regex("state=PlaybackState \{state=(\d+)")
                 while (snapRun) {
                     try {
-                        val q = Runtime.getRuntime().exec(arrayOf("dumpsys", "media_session"))
-                        val txt = q.inputStream.bufferedReader().readText()
+                        val txt = runCmd("dumpsys", "media_session")
+                        val st = re.find(txt)?.groupValues?.get(1)?.toIntOrNull() ?: -1
                         val cond = txt.lines().map { it.trim() }
                             .filter { it.contains("youtube", true) || it.startsWith("state=PlaybackState") || it.contains("active=") }
-                            .take(12).joinToString(" | ").take(400)
-                        if (cond != prev) { prev = cond; if (logLines.size < 300) logLines.add("[" + hhmmss() + "] 媒體工作階段: " + cond) }
+                            .take(12).joinToString(" | ").take(300)
+                        if (cond != prev) { prev = cond; if (logLines.size < 500) logLines.add("[" + hhmmss() + "] 媒體工作階段 state=" + st + ": " + cond) }
+                        if (prevState == 3 && (st == 1 || st == 2)) {
+                            logLines.add("[" + hhmmss() + "] 偵測到 播放→停止(" + st + ")，開始送播放指令")
+                            val r1 = runCmd("cmd", "media_session", "dispatch", "play")
+                            logLines.add("[" + hhmmss() + "] cmd media_session dispatch play → " + r1.take(120))
+                            try { Thread.sleep(1500) } catch (_: Throwable) {}
+                            val st1 = re.find(runCmd("dumpsys", "media_session"))?.groupValues?.get(1)
+                            logLines.add("[" + hhmmss() + "] 送出後狀態 state=" + st1)
+                            if (st1 != "3") {
+                                val r2 = runCmd("input", "keyevent", "126")
+                                logLines.add("[" + hhmmss() + "] input keyevent 126(MEDIA_PLAY) → " + r2.take(120))
+                                try { Thread.sleep(1500) } catch (_: Throwable) {}
+                                val st2 = re.find(runCmd("dumpsys", "media_session"))?.groupValues?.get(1)
+                                logLines.add("[" + hhmmss() + "] 再送後狀態 state=" + st2)
+                            }
+                        }
+                        prevState = st
                     } catch (_: Throwable) {}
-                    try { Thread.sleep(2000) } catch (_: Throwable) {}
+                    try { Thread.sleep(1000) } catch (_: Throwable) {}
                 }
             }.apply { isDaemon = true; start() }
             "已開始擷取日誌（" + hhmmss() + "）"
