@@ -84,6 +84,21 @@ object OemHelper {
         return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
+    /**
+     * 不是從商店安裝的 App，Android 13 起會擋住協助工具（「受限制的設定」）。
+     * 被擋住時這個 appop 是 MODE_ERRORED；使用者按「允許受限制的設定」後變成 MODE_ALLOWED。
+     */
+    fun isRestricted(ctx: Context): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 33) return false
+        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        return runCatching {
+            ops.unsafeCheckOpNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
+        }.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED) == android.app.AppOpsManager.MODE_ERRORED
+    }
+
+    fun openAppInfo(ctx: Context) =
+        start(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+
     fun openTurnScreenOnSettings(ctx: Context) {
         // 注意：帶 package 的版本在 Pixel 上會讓「設定」閃退，所以只開清單頁
         val tries = listOf(

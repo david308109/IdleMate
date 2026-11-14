@@ -245,7 +245,6 @@ class IdleAccessibilityService : AccessibilityService() {
         val longPress = Runnable {
             moving = true
             setThick(true)
-            touch.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         }
         touch.setOnTouchListener { _, e ->
             when (e.actionMasked) {

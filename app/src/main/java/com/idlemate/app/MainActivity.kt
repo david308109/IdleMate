@@ -60,8 +60,11 @@ class MainActivity : ComponentActivity() {
 
     private fun continueSetup() {
         if (!setupRunning) return
+        val a11yOk = IdleAccessibilityService.isEnabled(this)
         setupStep = when {
-            !IdleAccessibilityService.isEnabled(this) && "a11y" !in attempted -> "a11y"
+            // 被「受限制的設定」擋住時，要先解除，否則協助工具開關按不下去
+            !a11yOk && OemHelper.isRestricted(this) && "unlock" !in attempted -> "unlock"
+            !a11yOk && "a11y" !in attempted -> "a11y"
             !OemHelper.canTurnScreenOn(this) && "screenon" !in attempted -> "screenon"
             else -> {
                 setupRunning = false
@@ -75,7 +78,11 @@ class MainActivity : ComponentActivity() {
     private fun goToStep(step: String) {
         attempted.add(step)
         setupStep = null
-        if (step == "a11y") IdleAccessibilityService.openSettings(this) else OemHelper.openTurnScreenOnSettings(this)
+        when (step) {
+            "unlock" -> OemHelper.openAppInfo(this)
+            "a11y" -> IdleAccessibilityService.openSettings(this)
+            else -> OemHelper.openTurnScreenOnSettings(this)
+        }
     }
 
     private fun skipSetup() {
@@ -88,7 +95,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
-                setupStep?.let { step -> SetupDialog(step, onGo = { goToStep(step) }, onLater = ::skipSetup) }
+                setupStep?.let { step ->
+                    SetupDialog(step, withUnlock = "unlock" in attempted || step == "unlock",
+                        onGo = { goToStep(step) }, onLater = ::skipSetup)
+                }
             }
         }
     }
@@ -106,19 +116,34 @@ class MainActivity : ComponentActivity() {
 
 /** 權限說明小視窗（外觀接近系統的權限詢問視窗）。 */
 @Composable
-private fun SetupDialog(step: String, onGo: () -> Unit, onLater: () -> Unit) {
-    val total = if (Build.VERSION.SDK_INT >= 34) 2 else 1
-    val (title, body, hint) = if (step == "a11y") Triple(
-        "允許 IdleMate 使用協助工具？",
-        "用來在指定的 App 顯示邊緣把手、蓋上全黑畫面並擋住誤觸，以及鎖定螢幕。\n\n" +
-            "IdleMate 不讀取任何畫面內容，也沒有網路權限。",
-        "按「前往開啟」後，點標亮的「IdleMate」→ 開啟開關。"
-    ) else Triple(
-        "允許 IdleMate 點亮螢幕？",
-        "點兩下或按電源鍵鎖定後，用來自動點亮螢幕，讓你直接看到鎖屏畫面。",
-        "按「前往開啟」後，點「IdleMate」→ 開啟開關。"
-    )
-    val no = if (step == "a11y") 1 else total
+private fun SetupDialog(step: String, withUnlock: Boolean, onGo: () -> Unit, onLater: () -> Unit) {
+    val steps = buildList {
+        if (withUnlock) add("unlock")
+        add("a11y")
+        if (Build.VERSION.SDK_INT >= 34) add("screenon")
+    }
+    val (title, body, hint) = when (step) {
+        "unlock" -> Triple(
+            "先解除「受限制的設定」",
+            "IdleMate 不是從 Play 商店安裝的，Android 會先把協助工具鎖住，開關會是灰色、按不下去。" +
+                "這是系統對所有商店外 App 的保護，只要解除一次就好。",
+            "按「前往」後，在 IdleMate 的應用程式資訊頁：右上角「⋮」→「允許受限制的設定」→ 驗證身分，再回到 IdleMate。\n" +
+                "如果「⋮」裡沒有這個選項：先到 設定 → 協助工具 點一次 IdleMate（會跳出「受限制的設定」，按確定），再回來就會出現。"
+        )
+        "a11y" -> Triple(
+            "允許 IdleMate 使用協助工具？",
+            "用來在指定的 App 顯示邊緣把手、蓋上全黑畫面並擋住誤觸，以及鎖定螢幕。\n\n" +
+                "IdleMate 不讀取任何畫面內容，也沒有網路權限。",
+            "按「前往開啟」後，點標亮的「IdleMate」→ 開啟開關。"
+        )
+        else -> Triple(
+            "允許 IdleMate 點亮螢幕？",
+            "點兩下或按電源鍵鎖定後，用來自動點亮螢幕，讓你直接看到鎖屏畫面。",
+            "按「前往開啟」後，點「IdleMate」→ 開啟開關。"
+        )
+    }
+    val total = steps.size
+    val no = steps.indexOf(step) + 1
     AlertDialog(
         onDismissRequest = onLater,
         title = { Text(title) },
@@ -128,7 +153,7 @@ private fun SetupDialog(step: String, onGo: () -> Unit, onLater: () -> Unit) {
                 Text("步驟 $no / $total　$hint", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = onGo) { Text("前往開啟") } },
+        confirmButton = { TextButton(onClick = onGo) { Text(if (step == "unlock") "前往" else "前往開啟") } },
         dismissButton = { TextButton(onClick = onLater) { Text("稍後") } }
     )
 }
@@ -165,6 +190,8 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         if (!a11yOk || !screenOnOk) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("設定（只需一次）", style = MaterialTheme.typography.titleMedium)
+                val restricted = !a11yOk && OemHelper.isRestricted(ctx)
+                if (restricted) Text("⬜ 解除限制：應用程式資訊 →「⋮」→「允許受限制的設定」")
                 Text("${if (a11yOk) "✅" else "⬜"} 協助工具：開啟「IdleMate」")
                 Text("${if (screenOnOk) "✅" else "⬜"} 點亮螢幕：開啟「IdleMate」（鎖定後自動亮屏，直接看到鎖屏）")
                 Button(onClick = onSetup) { Text("開始設定") }
@@ -177,17 +204,12 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         "只用來顯示邊緣把手、全黑畫面、知道目前的 App 與鎖定螢幕，也沒有網路權限。",
                     style = MaterialTheme.typography.bodySmall
                 )
-                if (!a11yOk) {
+                if (restricted) {
                     Text(
-                        "如果協助工具的開關是灰色、按不下去：到 設定 → 應用程式 → IdleMate → 右上角「⋮」→「允許受限制的設定」，再回來開啟。",
+                        "因為不是從 Play 商店安裝，Android 會先鎖住協助工具（開關是灰色）。解除一次即可，之後更新不用再做。",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    OutlinedButton(onClick = {
-                        runCatching {
-                            ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                android.net.Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
-                    }) { Text("開啟 IdleMate 的應用程式資訊") }
+                    OutlinedButton(onClick = { OemHelper.openAppInfo(ctx) }) { Text("開啟 IdleMate 的應用程式資訊") }
                 }
             }
         }
@@ -254,7 +276,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         IdleAccessibilityService.instance?.refreshHandle()
                     })
                 }
-                Text("上下拖曳把手可調整位置。", style = MaterialTheme.typography.bodySmall)
+                Text("按住把手約 0.5 秒，線變粗後即可上下拖曳調整位置。", style = MaterialTheme.typography.bodySmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("放在左邊", modifier = Modifier.weight(1f))
                     Switch(checked = edgeLeft, onCheckedChange = {
