@@ -58,11 +58,12 @@ class PowerService : IPowerService.Stub() {
     @Volatile private var touchGen = 0
     @Volatile private var lastTouch = 0L
     @Volatile private var evCount = 0
+    private val evLog = java.util.Collections.synchronizedList(ArrayList<String>())
 
     // 直接讀 /dev/input/event*（避免 getevent 輸出被管線緩衝而延遲）
     override fun startTouchWatch(): String = synchronized(this) {
         val gen = ++touchGen
-        lastTouch = 0L; evCount = 0
+        lastTouch = 0L; evCount = 0; evLog.clear()
         val files = java.io.File("/dev/input").listFiles { f -> f.name.startsWith("event") }
             ?: return "無法列出 /dev/input"
         var opened = 0
@@ -84,6 +85,7 @@ class PowerService : IPowerService.Stub() {
                                 val code = bb.getShort(o + 18).toInt() and 0xffff
                                 val value = bb.getInt(o + 20)
                                 evCount++
+                                if (type != 0 && evLog.size < 40) evLog.add("${f.name}:t$type/c$code/v$value")
                                 if ((type == 1 && code == 0x14a && value == 1) ||
                                     (type == 3 && code == 0x39 && value != -1) ||
                                     (type == 1 && (code == 114 || code == 115) && value == 1)) {
@@ -100,7 +102,7 @@ class PowerService : IPowerService.Stub() {
         "已監聽 $opened/${files.size} 個輸入裝置 $errs"
     }
 
-    override fun touchInfo(): String = "收到輸入事件 $evCount 筆"
+    override fun touchInfo(): String = "收到輸入事件 $evCount 筆 [" + synchronized(evLog) { evLog.joinToString(" ") } + "]"
 
     override fun stopTouchWatch() { touchGen++ }
 
