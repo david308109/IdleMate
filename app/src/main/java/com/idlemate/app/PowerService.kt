@@ -71,7 +71,17 @@ class PowerService : IPowerService.Stub() {
         return sb.append("失敗").toString()
     }
 
+    // 系統函式庫在同一個行程只能載入一次，所以載入後要留著重複使用
+    private var displayControlCache: Class<*>? = null
+
     private fun loadDisplayControl(): Class<*> {
+        displayControlCache?.let { return it }
+        val cls = doLoadDisplayControl()
+        displayControlCache = cls
+        return cls
+    }
+
+    private fun doLoadDisplayControl(): Class<*> {
         val factory = Class.forName("com.android.internal.os.ClassLoaderFactory")
         val create = factory.getDeclaredMethod(
             "createClassLoader",
