@@ -266,7 +266,29 @@ class EdgeHandleService : Service() {
             if (!sessionActive) return@postDelayed
             ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
             addTouchWatcher()
+            startTouchPolling()
         }, 400)
+    }
+
+    /** 透過 shell 行程的 getevent 偵測觸控（黑屏時視窗收不到觸碰事件）。 */
+    private fun startTouchPolling() {
+        val startAt = System.currentTimeMillis()
+        ShizukuHelper.startTouchWatch(this) { DebugLog.add(this, "觸控監聽：$it") }
+        val tick = object : Runnable {
+            override fun run() {
+                if (!sessionActive) return
+                ShizukuHelper.touchStamp { stamp ->
+                    handler.post {
+                        if (sessionActive && stamp > startAt + 800) {
+                            DebugLog.add(this@EdgeHandleService, "偵測到觸碰(getevent) → 恢復面板並顯示鎖屏")
+                            endSession(restorePanel = true, lockAfterRestore = true)
+                        }
+                    }
+                }
+                handler.postDelayed(this, 150)
+            }
+        }
+        handler.postDelayed(tick, 150)
     }
 
     /**
@@ -314,6 +336,7 @@ class EdgeHandleService : Service() {
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
         touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
+        ShizukuHelper.stopTouchWatch()
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null

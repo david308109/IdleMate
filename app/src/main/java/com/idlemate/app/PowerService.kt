@@ -55,6 +55,35 @@ class PowerService : IPowerService.Stub() {
         "已呼叫 lockNow（鎖屏，不睡眠）"
     } catch (t: Throwable) { "lockNow 失敗：${describe(t)}" }
 
+    @Volatile private var touchProc: Process? = null
+    @Volatile private var lastTouch = 0L
+
+    override fun startTouchWatch(): String = synchronized(this) {
+        stopTouchWatch()
+        lastTouch = 0L
+        try {
+            val p = Runtime.getRuntime().exec(arrayOf("getevent", "-l"))
+            touchProc = p
+            Thread {
+                try {
+                    p.inputStream.bufferedReader().forEachLine { l ->
+                        val down = (l.contains("BTN_TOUCH") && l.contains("DOWN")) ||
+                            (l.contains("ABS_MT_TRACKING_ID") && !l.trim().endsWith("ffffffff"))
+                        if (down) lastTouch = System.currentTimeMillis()
+                    }
+                } catch (_: Throwable) {}
+            }.apply { isDaemon = true; start() }
+            "已開始監聽觸控"
+        } catch (t: Throwable) { "監聽觸控失敗：${describe(t)}" }
+    }
+
+    override fun touchStamp(): Long = lastTouch
+
+    override fun stopTouchWatch() {
+        touchProc?.let { runCatching { it.destroy() } }
+        touchProc = null
+    }
+
     private fun describe(t: Throwable): String {
         val c = (t as? java.lang.reflect.InvocationTargetException)?.cause ?: t
         return "${c.javaClass.simpleName}: ${c.message}"

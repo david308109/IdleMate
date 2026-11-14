@@ -13,4 +13,9 @@ interface IPowerService {
 
     // 只顯示鎖屏（讓手機進入鎖定狀態），但不讓系統睡眠
     String lockKeyguard() = 3;
+
+    // 在 shell 行程用 getevent 監聽觸控；touchStamp 回傳最近一次「手指按下」的時間（0 = 尚無）
+    String startTouchWatch() = 4;
+    long touchStamp() = 5;
+    void stopTouchWatch() = 6;
 }
