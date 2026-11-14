@@ -182,6 +182,8 @@ class EdgeHandleService : Service() {
         sessionActive = true
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
         wasPlaying = resumeAudio && am.isMusicActive
+        DebugLog.add(this, "── 點擊 ${if (resumeAudio) "待機聽劇" else "掛機"}：鎖屏前正在播放=${am.isMusicActive}，" +
+            "通知存取權=${OemHelper.isNotificationListenerEnabled(this)}")
 
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:session")
@@ -199,28 +201,44 @@ class EdgeHandleService : Service() {
 
     /** 螢幕關掉後，若原本在播放，就反覆確認聲音有沒有被 App 暫停，被暫停就叫它繼續。 */
     private fun onScreenOff() {
+        DebugLog.add(this, "螢幕已關閉（工作階段=$sessionActive，需恢復播放=$wasPlaying）")
         if (!sessionActive || !wasPlaying) return
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        for (delay in longArrayOf(300, 800, 1500, 3000, 5000, 8000, 12000)) {
+        val delays = longArrayOf(300, 800, 1500, 3000, 5000, 8000, 12000)
+        delays.forEachIndexed { i, delay ->
             handler.postDelayed({
-                if (sessionActive && !am.isMusicActive) resumeNow(am)
+                if (!sessionActive) return@postDelayed
+                val active = am.isMusicActive
+                if (active) {
+                    DebugLog.add(this, "+${delay}ms 聲音正在播放 ✓")
+                } else {
+                    resumeNow(am, delay, tryKey = i >= 2)
+                }
             }, delay)
         }
     }
 
-    /** 有通知存取權就直接對播放器下「播放」；否則退回系統媒體鍵。 */
-    private fun resumeNow(am: AudioManager) {
+    /** 先對播放器直接下「播放」（需通知存取權）；稍後仍沒聲音，再加送系統媒體鍵。 */
+    private fun resumeNow(am: AudioManager, delay: Long, tryKey: Boolean) {
+        val summary = StringBuilder("+${delay}ms 沒有聲音 → ")
         val direct = runCatching {
             val msm = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
             val sessions = msm.getActiveSessions(ComponentName(this, MediaListener::class.java))
+            summary.append("播放器=").append(
+                sessions.joinToString { "${it.packageName}:${it.playbackState?.state}" }.ifEmpty { "無" }
+            )
             val target = sessions.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PAUSED }
                 ?: sessions.firstOrNull()
-            target?.transportControls?.play() ?: error("no session")
-        }.isSuccess
-        if (!direct) {
+            target?.transportControls?.play() ?: error("沒有可控制的播放器")
+            summary.append(" 已送出play(${target.packageName})")
+        }.onFailure { summary.append(" 直接控制失敗：${it.javaClass.simpleName} ${it.message ?: ""}") }
+            .isSuccess
+        if (!direct || tryKey) {
             am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
             am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+            summary.append(" 已送出媒體鍵")
         }
+        DebugLog.add(this, summary.toString())
     }
 
     private fun endSession() {

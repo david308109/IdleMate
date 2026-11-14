@@ -108,6 +108,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = remember { Prefs(ctx) }
 
+    var logTick by remember { mutableStateOf(0) }
     var edgeOn by remember(refreshTick) { mutableStateOf(prefs.edgeOn) }
     var edgeLeft by remember(refreshTick) { mutableStateOf(prefs.edgeLeft) }
 
@@ -154,6 +155,18 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         "「待機聽劇」才會在鎖屏後恢復播放；「掛機」只負責讓 App 繼續運作。",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+        }
+
+        // ── 診斷紀錄 ──
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("診斷紀錄", style = MaterialTheme.typography.titleMedium)
+                val log = remember(refreshTick, logTick) { DebugLog.read(ctx) }
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(log.ifEmpty { "（還沒有紀錄。測試後回到這裡查看）" }, style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(onClick = { DebugLog.clear(ctx); logTick++ }) { Text("清除紀錄") }
             }
         }
 
