@@ -47,10 +47,12 @@ class MainActivity : ComponentActivity() {
     // 回到畫面時重新讀取授權與開關狀態
     private var refreshTick by mutableStateOf(0)
 
-    // 自動設定：缺哪個權限就直接帶到那個設定頁，依序進行；每一頁這一輪只帶一次，避免使用者不開時一直被拉回去
+    // 自動設定：缺哪個權限，就先跳出說明小視窗，按「前往開啟」再帶到那個設定頁（自動標亮 IdleMate）。
+    // 每一步這一輪只問一次，使用者按「稍後」就不再追問。
     private var setupRunning = false
     private var autoSetupDone = false
     private val attempted = mutableSetOf<String>()
+    private var setupStep by mutableStateOf<String?>(null)
 
     private fun startSetup() {
         attempted.clear(); setupRunning = true; continueSetup()
@@ -58,22 +60,27 @@ class MainActivity : ComponentActivity() {
 
     private fun continueSetup() {
         if (!setupRunning) return
-        fun once(key: String) = attempted.add(key)
-        when {
-            !IdleAccessibilityService.isEnabled(this) && once("a11y") -> {
-                Toast.makeText(this, "第 1 步：在清單中找到「IdleMate」並開啟", Toast.LENGTH_LONG).show()
-                IdleAccessibilityService.openSettings(this)
-            }
-            !OemHelper.canTurnScreenOn(this) && once("screenon") -> {
-                Toast.makeText(this, "第 2 步：在清單中找到「IdleMate」並開啟「點亮螢幕」", Toast.LENGTH_LONG).show()
-                OemHelper.openTurnScreenOnSettings(this)
-            }
+        setupStep = when {
+            !IdleAccessibilityService.isEnabled(this) && "a11y" !in attempted -> "a11y"
+            !OemHelper.canTurnScreenOn(this) && "screenon" !in attempted -> "screenon"
             else -> {
                 setupRunning = false
                 if (allReady(this)) Toast.makeText(this, "設定完成，打開 YouTube 或遊戲，從螢幕邊緣滑出選單即可使用", Toast.LENGTH_LONG).show()
+                null
             }
         }
         refreshTick++
+    }
+
+    private fun goToStep(step: String) {
+        attempted.add(step)
+        setupStep = null
+        if (step == "a11y") IdleAccessibilityService.openSettings(this) else OemHelper.openTurnScreenOnSettings(this)
+    }
+
+    private fun skipSetup() {
+        setupRunning = false
+        setupStep = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +88,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
+                setupStep?.let { step -> SetupDialog(step, onGo = { goToStep(step) }, onLater = ::skipSetup) }
             }
         }
     }
@@ -94,6 +102,35 @@ class MainActivity : ComponentActivity() {
         }
         refreshTick++
     }
+}
+
+/** 權限說明小視窗（外觀接近系統的權限詢問視窗）。 */
+@Composable
+private fun SetupDialog(step: String, onGo: () -> Unit, onLater: () -> Unit) {
+    val total = if (Build.VERSION.SDK_INT >= 34) 2 else 1
+    val (title, body, hint) = if (step == "a11y") Triple(
+        "允許 IdleMate 使用協助工具？",
+        "用來在指定的 App 顯示邊緣把手、蓋上全黑畫面並擋住誤觸，以及鎖定螢幕。\n\n" +
+            "IdleMate 不讀取任何畫面內容，也沒有網路權限。",
+        "按「前往開啟」後，點標亮的「IdleMate」→ 開啟開關。"
+    ) else Triple(
+        "允許 IdleMate 點亮螢幕？",
+        "點兩下或按電源鍵鎖定後，用來自動點亮螢幕，讓你直接看到鎖屏畫面。",
+        "按「前往開啟」後，點「IdleMate」→ 開啟開關。"
+    )
+    val no = if (step == "a11y") 1 else total
+    AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(body)
+                Text("步驟 $no / $total　$hint", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onGo) { Text("前往開啟") } },
+        dismissButton = { TextButton(onClick = onLater) { Text("稍後") } }
+    )
 }
 
 private fun allReady(ctx: Context) =

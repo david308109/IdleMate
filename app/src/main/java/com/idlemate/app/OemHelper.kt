@@ -86,7 +86,14 @@ object OemHelper {
 
     fun openTurnScreenOnSettings(ctx: Context) {
         // 注意：帶 package 的版本在 Pixel 上會讓「設定」閃退，所以只開清單頁
-        val tries = listOf(Intent("android.settings.TURN_SCREEN_ON_SETTINGS"))
+        val tries = listOf(
+            Intent("android.settings.TURN_SCREEN_ON_SETTINGS")
+                // 讓清單自動捲到 IdleMate 並標亮（不支援的手機會忽略）
+                .putExtra(":settings:fragment_args_key", ctx.packageName)
+                .putExtra(":settings:show_fragment_args", android.os.Bundle().apply {
+                    putString(":settings:fragment_args_key", ctx.packageName)
+                })
+        )
         for (i in tries) {
             try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (_: Exception) { }
         }

@@ -47,9 +47,18 @@ class IdleAccessibilityService : AccessibilityService() {
             return list.split(':').any { it.equals(me, ignoreCase = true) }
         }
 
+        /** 開啟協助工具清單，並自動捲到「IdleMate」那一項、標亮。 */
         fun openSettings(ctx: Context) {
+            val key = ComponentName(ctx, IdleAccessibilityService::class.java).flattenToString()
             runCatching {
-                ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ctx.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .putExtra(":settings:fragment_args_key", key)
+                        .putExtra(":settings:show_fragment_args", android.os.Bundle().apply {
+                            putString(":settings:fragment_args_key", key)
+                        })
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
             }
         }
     }
