@@ -190,6 +190,41 @@ class PowerService : IPowerService.Stub() {
         } catch (t: Throwable) { "擷取日誌失敗：${describe(t)}" }
     }
 
+    override fun probeTouch(): String {
+        val nl = System.lineSeparator()
+        val sb = StringBuilder("探測 " + hhmmss() + nl)
+        fun section(title: String, body: String) {
+            sb.append("== ").append(title).append(" ==").append(nl)
+            sb.append(if (body.isBlank()) "（無）" else body.take(2500)).append(nl)
+        }
+        section("身分", runCmd("id"))
+        section("/dev 觸控相關裝置", runCmd("sh", "-c", "ls -laZ /dev 2>&1 | grep -i -E 'touch|goog|offload|tbn|fts|gti|input'"))
+        val found = runCmd("sh", "-c",
+            "timeout 25 find /sys/devices/platform /sys/class/input /sys/kernel -maxdepth 9 " +
+                "\\( -iname '*force_active*' -o -iname '*gesture*' -o -iname '*tap*' -o -iname '*wake*' " +
+                "-o -iname '*screen_state*' -o -iname '*lpm*' -o -iname '*goog*' -o -iname '*touch*' -o -iname '*panel_state*' \\) " +
+                "2>/dev/null | head -200")
+        val files = StringBuilder()
+        for (path in found.lines().map { it.trim() }.filter { it.startsWith("/") }) {
+            val f = java.io.File(path)
+            val kind = if (f.isDirectory) "目錄" else "檔案"
+            val r = if (f.canRead()) "可讀" else "不可讀"
+            val w = if (f.canWrite()) "可寫" else "不可寫"
+            var content = ""
+            if (f.isFile && f.canRead()) {
+                content = try { f.readText().take(60).replace(nl, " ").replace("\n", " ") } catch (t: Throwable) { "讀取失敗:" + t.javaClass.simpleName }
+            }
+            files.append(path).append("  [").append(kind).append(" ").append(r).append(" ").append(w).append("] ").append(content).append(nl)
+        }
+        section("sysfs 觸控/喚醒相關（最多 200 項）", files.toString())
+        section("系統服務：電源/觸控/輸入", runCmd("sh", "-c", "service list 2>&1 | grep -i -E 'power|touch|input|twoshay|gti' | head -30"))
+        section("屬性 getprop", runCmd("sh", "-c", "getprop | grep -i -E 'touch|tap|doze|wake|gesture' | head -40"))
+        section("Secure 設定", runCmd("sh", "-c", "settings list secure | grep -i -E 'tap|doze|wake|gesture' | head -40"))
+        section("dumpsys power 摘錄", runCmd("sh", "-c", "dumpsys power | grep -i -E 'tap|wake|gesture|mode' | head -40"))
+        section("cmd power help", runCmd("cmd", "power", "help").take(2500))
+        return sb.toString().take(20000)
+    }
+
     override fun stopLogCapture(): String = synchronized(this) {
         snapRun = false
         runCatching { logProc?.destroy() }

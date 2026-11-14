@@ -26,4 +26,7 @@ interface IPowerService {
     // 診斷：開始 / 結束擷取系統日誌（只留與 YouTube、媒體、凍結程序相關的行）
     String startLogCapture() = 9;
     String stopLogCapture() = 10;
+
+    // 診斷：探測觸控驅動 / 電源 HAL 可能的控制入口（列出、標示能否讀寫）
+    String probeTouch() = 11;
 }

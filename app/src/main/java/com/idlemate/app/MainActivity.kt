@@ -220,7 +220,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         // ── 診斷：鎖屏時是誰停了 YouTube ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("診斷 v6：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
+                Text("診斷 v7：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
                 Text(
                     listOf(
                         "1. 按「開始擷取」",
@@ -239,6 +239,10 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         ShizukuHelper.stopLogCapture(ctx) { r -> diag = r }
                     }) { Text("結束並顯示") }
                 }
+                OutlinedButton(onClick = {
+                    if (!ShizukuHelper.granted()) diag = "請先啟動並授權 Shizuku"
+                    else { diag = "探測中…（約 10～30 秒）"; ShizukuHelper.probeTouch(ctx) { r -> diag = r } }
+                }) { Text("探測觸控控制入口") }
                 if (diag.isNotEmpty()) androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(diag, style = MaterialTheme.typography.bodySmall)
                 }
