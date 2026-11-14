@@ -30,6 +30,19 @@
             </intent-filter>
         </activity>
 
+        <!-- 裝置管理員：僅用來鎖定螢幕 -->
+        <receiver
+            android:name=".IdleDeviceAdmin"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 螢幕邊緣把手（懸浮視窗） -->
         <service
             android:name=".EdgeHandleService"

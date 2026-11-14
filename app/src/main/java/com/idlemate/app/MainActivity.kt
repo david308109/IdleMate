@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
             !OemHelper.canOverlay(this) && once("overlay") -> OemHelper.openOverlaySettings(this)
             !OemHelper.isIgnoringBatteryOptimizations(this) && once("battery") ->
                 OemHelper.requestIgnoreBatteryOptimizations(this)
+            !Features.isAdminActive(this) && once("admin") -> Features.requestAdmin(this)
             Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED && once("notif") ->
@@ -118,7 +119,8 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
     val listenerOk = OemHelper.isNotificationListenerEnabled(ctx)
     val overlayOk = OemHelper.canOverlay(ctx)
     val batteryOk = OemHelper.isIgnoringBatteryOptimizations(ctx)
-    val allReady = overlayOk && batteryOk
+    val adminOk = Features.isAdminActive(ctx)
+    val allReady = overlayOk && batteryOk && adminOk
 
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
 
@@ -134,6 +136,7 @@ private fun Home(refreshTick: Int, refresh: () -> Unit, onSetup: () -> Unit) {
                 Text("首次設定（只需一次）", style = MaterialTheme.typography.titleMedium)
                 Text("${if (overlayOk) "✅" else "⬜"} 顯示邊緣把手（懸浮視窗）")
                 Text("${if (batteryOk) "✅" else "⬜"} 允許背景運行")
+                Text("${if (adminOk) "✅" else "⬜"} 啟用裝置管理員（只用來關閉螢幕）")
                 Button(onClick = onSetup) { Text("一鍵完成設定") }
                 Text("系統規定這些授權必須由你親自按同意，App 無法代按；做完之後點功能就直接生效。",
                     style = MaterialTheme.typography.bodySmall)

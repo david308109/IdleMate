@@ -114,10 +114,12 @@ class EdgeHandleService : Service() {
             setPadding(0, dp(6), 0, dp(6))
         }
         keepAliveLabel = item("") {
-            Toast.makeText(this, Features.toggleKeepAlive(this), Toast.LENGTH_SHORT).show(); refreshLabels()
+            Toast.makeText(this, Features.toggleKeepAlive(this), Toast.LENGTH_SHORT).show()
+            refreshLabels(); closePanel()
         }
         mediaLabel = item("") {
-            Toast.makeText(this, Features.toggleMedia(this), Toast.LENGTH_SHORT).show(); refreshLabels()
+            Toast.makeText(this, Features.toggleMedia(this), Toast.LENGTH_SHORT).show()
+            refreshLabels(); closePanel()
         }
         box.addView(keepAliveLabel)
         box.addView(mediaLabel)
