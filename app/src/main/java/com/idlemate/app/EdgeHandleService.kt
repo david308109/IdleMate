@@ -14,7 +14,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -46,9 +45,26 @@ class EdgeHandleService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    private var awaitingWake = false
+
     private val screenOffReceiver = object : BroadcastReceiver() {
-        // 使用者在面板關閉期間按了電源鍵 → 系統真的睡眠了，結束本次，面板電源交給系統處理
-        override fun onReceive(context: Context, intent: Intent) = endSession(restorePanel = false)
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                // 使用者按了電源鍵 → 系統真的睡眠了：結束本次，但保留接收器等待下次亮屏
+                Intent.ACTION_SCREEN_OFF -> if (sessionActive) {
+                    endSession(restorePanel = false, keepReceiver = true)
+                    awaitingWake = true
+                }
+                // 再按電源鍵亮屏（進入正常鎖屏）時，保險起見再把面板電源設回正常
+                Intent.ACTION_SCREEN_ON -> if (awaitingWake) {
+                    awaitingWake = false
+                    runCatching { unregisterReceiver(this) }
+                    ShizukuHelper.setDisplayPower(this@EdgeHandleService, on = true) {
+                        DebugLog.add(this@EdgeHandleService, "亮屏後恢復面板：$it")
+                    }
+                }
+            }
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -186,7 +202,9 @@ class EdgeHandleService : Service() {
         wifiLock = (applicationContext.getSystemService(WIFI_SERVICE) as WifiManager)
             .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:panel-off-wifi")
             .apply { setReferenceCounted(false); acquire() }
-        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        registerReceiver(screenOffReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+        })
 
         // 等選單收起後再關面板
         handler.postDelayed({
@@ -195,7 +213,7 @@ class EdgeHandleService : Service() {
         }, 400)
     }
 
-    /** 全螢幕透明視窗：吃掉所有觸控（避免口袋誤觸）、保持系統清醒，雙擊才恢復。 */
+    /** 全螢幕透明視窗：吃掉所有觸控（避免口袋誤觸）、保持系統清醒。要回來請按電源鍵。 */
     private fun addCover() {
         val lp = WindowManager.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
@@ -207,21 +225,17 @@ class EdgeHandleService : Service() {
             PixelFormat.TRANSLUCENT
         )
         val v = FrameLayout(this)
-        val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
-            override fun onDoubleTap(e: MotionEvent): Boolean { endSession(restorePanel = true); return true }
-        })
-        v.setOnTouchListener { _, e -> gestures.onTouchEvent(e); true }
+        v.setOnTouchListener { _, _ -> true }
         wm.addView(v, lp)
         cover = v
     }
 
-    private fun endSession(restorePanel: Boolean) {
+    private fun endSession(restorePanel: Boolean, keepReceiver: Boolean = false) {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
         cover?.let { runCatching { wm.removeView(it) } }; cover = null
-        runCatching { unregisterReceiver(screenOffReceiver) }
+        if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
         if (restorePanel) {
@@ -232,6 +246,7 @@ class EdgeHandleService : Service() {
 
     override fun onDestroy() {
         endSession(restorePanel = true)
+        if (awaitingWake) runCatching { unregisterReceiver(screenOffReceiver) }
         panel?.let { runCatching { wm.removeView(it) } }
         handle?.let { runCatching { wm.removeView(it) } }
         panel = null; handle = null
