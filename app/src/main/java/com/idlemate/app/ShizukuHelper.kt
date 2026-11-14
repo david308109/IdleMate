@@ -8,11 +8,15 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.IBinder
 import rikka.shizuku.Shizuku
+import java.util.concurrent.Executors
 
 /** 與 Shizuku 的橋接：檢查狀態、要求授權、呼叫 shell 權限的 PowerService。 */
 object ShizukuHelper {
     private const val SHIZUKU_PKG = "moe.shizuku.privileged.api"
     private const val REQUEST_CODE = 1001
+
+    // 所有 Shizuku 呼叫排成單一佇列，依序執行（避免「關面板」與「恢復」同時搶資源或順序錯亂）
+    private val executor = Executors.newSingleThreadExecutor()
 
     private var service: IPowerService? = null
     private var binding = false
@@ -58,30 +62,30 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(3)
+            .daemon(false).processNameSuffix("power").version(4)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
     }
 
     /** 讓手機進入鎖定狀態（顯示鎖屏），但系統不睡眠。 */
     fun lockKeyguard(ctx: Context, done: (String) -> Unit) {
         withService(ctx.applicationContext) { svc ->
-            Thread { done(runCatching { svc.lockKeyguard() }.getOrElse { "呼叫失敗：$it" }) }.start()
+            executor.execute { done(runCatching { svc.lockKeyguard() }.getOrElse { "呼叫失敗：$it" }) }
         }
     }
 
     /** 送出「喚醒」按鍵（以 shell 身分），讓睡眠中的手機亮屏。 */
     fun wakeUp(ctx: Context, done: (String) -> Unit) {
         withService(ctx.applicationContext) { svc ->
-            Thread { done(runCatching { svc.wakeUp() }.getOrElse { "呼叫失敗：$it" }) }.start()
+            executor.execute { done(runCatching { svc.wakeUp() }.getOrElse { "呼叫失敗：$it" }) }
         }
     }
 
     /** 開 / 關螢幕面板，結果說明透過 done 回傳（在背景執行緒）。 */
     fun setDisplayPower(ctx: Context, on: Boolean, done: (String) -> Unit) {
         withService(ctx.applicationContext) { svc ->
-            Thread {
+            executor.execute {
                 done(runCatching { svc.setDisplayPower(on) }.getOrElse { "呼叫失敗：$it" })
-            }.start()
+            }
         }
     }
 }

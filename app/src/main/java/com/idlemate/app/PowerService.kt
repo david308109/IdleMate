@@ -16,8 +16,9 @@ class PowerService : IPowerService.Stub() {
         exitProcess(0)
     }
 
-    override fun setDisplayPower(on: Boolean): String =
+    override fun setDisplayPower(on: Boolean): String = synchronized(LOCK) {
         try { apply(on) } catch (t: Throwable) { "未預期的錯誤：${describe(t)}" }
+    }
 
     override fun wakeUp(): String = try {
         val p = Runtime.getRuntime().exec(arrayOf("input", "keyevent", "224")) // KEYCODE_WAKEUP
@@ -86,9 +87,7 @@ class PowerService : IPowerService.Stub() {
         return sb.append("失敗").toString()
     }
 
-    // 系統函式庫在同一個行程只能載入一次，所以載入後要留著重複使用
-    private var displayControlCache: Class<*>? = null
-
+    // 系統函式庫在同一個行程只能載入一次，所以載入後要留著重複使用（跨 PowerService 實例共用）
     private fun loadDisplayControl(): Class<*> {
         displayControlCache?.let { return it }
         val cls = doLoadDisplayControl()
@@ -114,6 +113,8 @@ class PowerService : IPowerService.Stub() {
     }
 
     private companion object {
+        val LOCK = Any()
+        @Volatile var displayControlCache: Class<*>? = null
         const val POWER_MODE_OFF = 0
         const val POWER_MODE_NORMAL = 2
     }
