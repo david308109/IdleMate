@@ -19,6 +19,11 @@ class PowerService : IPowerService.Stub() {
     override fun setDisplayPower(on: Boolean): String =
         try { apply(on) } catch (t: Throwable) { "未預期的錯誤：${describe(t)}" }
 
+    override fun wakeUp(): String = try {
+        val p = Runtime.getRuntime().exec(arrayOf("input", "keyevent", "224")) // KEYCODE_WAKEUP
+        "喚醒按鍵已送出，結束碼 ${p.waitFor()}"
+    } catch (t: Throwable) { "喚醒失敗：${describe(t)}" }
+
     private fun describe(t: Throwable): String {
         val c = (t as? java.lang.reflect.InvocationTargetException)?.cause ?: t
         return "${c.javaClass.simpleName}: ${c.message}"

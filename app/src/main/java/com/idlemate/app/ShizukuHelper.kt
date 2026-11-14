@@ -58,8 +58,15 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(1)
+            .daemon(false).processNameSuffix("power").version(2)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
+    }
+
+    /** 送出「喚醒」按鍵（以 shell 身分），讓睡眠中的手機亮屏。 */
+    fun wakeUp(ctx: Context, done: (String) -> Unit) {
+        withService(ctx.applicationContext) { svc ->
+            Thread { done(runCatching { svc.wakeUp() }.getOrElse { "呼叫失敗：$it" }) }.start()
+        }
     }
 
     /** 開 / 關螢幕面板，結果說明透過 done 回傳（在背景執行緒）。 */

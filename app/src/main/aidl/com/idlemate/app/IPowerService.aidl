@@ -7,4 +7,7 @@ interface IPowerService {
 
     // 開 / 關實體螢幕面板（不讓系統進入睡眠）。回傳執行結果說明。
     String setDisplayPower(boolean on) = 1;
+
+    // 送出「喚醒」按鍵，讓睡眠中的手機亮屏（進入鎖屏畫面）
+    String wakeUp() = 2;
 }

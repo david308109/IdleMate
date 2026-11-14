@@ -54,6 +54,8 @@ class EdgeHandleService : Service() {
                 Intent.ACTION_SCREEN_OFF -> if (sessionActive) {
                     endSession(restorePanel = false, keepReceiver = true)
                     awaitingWake = true
+                    // 立刻把螢幕叫醒，使用者只按一次電源鍵就看到鎖屏畫面
+                    handler.postDelayed({ wakeScreen() }, 200)
                 }
                 // 再按電源鍵亮屏（進入正常鎖屏）時，保險起見再把面板電源設回正常
                 Intent.ACTION_SCREEN_ON -> if (awaitingWake) {
@@ -228,6 +230,17 @@ class EdgeHandleService : Service() {
         v.setOnTouchListener { _, _ -> true }
         wm.addView(v, lp)
         cover = v
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wakeScreen() {
+        // 方法一：帶「喚醒」旗標的喚醒鎖；方法二：以 shell 身分送出喚醒按鍵
+        runCatching {
+            (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
+            ).acquire(3000)
+        }.onFailure { DebugLog.add(this, "喚醒鎖失敗：$it") }
+        ShizukuHelper.wakeUp(this) { DebugLog.add(this, "喚醒：$it") }
     }
 
     private fun endSession(restorePanel: Boolean, keepReceiver: Boolean = false) {
