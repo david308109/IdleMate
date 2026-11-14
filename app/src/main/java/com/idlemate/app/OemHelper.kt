@@ -86,15 +86,24 @@ object OemHelper {
 
     /**
      * 不是從商店安裝的 App，Android 13 起會擋住協助工具（「受限制的設定」）。
-     * 被擋住時這個 appop 是 MODE_ERRORED；使用者按「允許受限制的設定」後變成 MODE_ALLOWED。
+     * - MODE_ERRORED：被擋住，且使用者還沒點過（「⋮」裡還沒有「允許受限制的設定」）
+     * - MODE_IGNORED：被擋住，但使用者已在協助工具點過一次，「⋮」選項已出現
+     * - MODE_ALLOWED / 預設：沒被擋
      */
-    fun isRestricted(ctx: Context): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 33) return false
+    private fun restrictedMode(ctx: Context): Int {
+        if (android.os.Build.VERSION.SDK_INT < 33) return android.app.AppOpsManager.MODE_ALLOWED
         val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
         return runCatching {
             ops.unsafeCheckOpNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
-        }.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED) == android.app.AppOpsManager.MODE_ERRORED
+        }.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED)
     }
+
+    fun isRestricted(ctx: Context): Boolean = restrictedMode(ctx).let {
+        it == android.app.AppOpsManager.MODE_ERRORED || it == android.app.AppOpsManager.MODE_IGNORED
+    }
+
+    /** 被擋住，而且「⋮ → 允許受限制的設定」還沒出現（要先到協助工具點一次 IdleMate） */
+    fun needsReveal(ctx: Context): Boolean = restrictedMode(ctx) == android.app.AppOpsManager.MODE_ERRORED
 
     fun openAppInfo(ctx: Context) =
         start(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))

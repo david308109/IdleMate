@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         val a11yOk = IdleAccessibilityService.isEnabled(this)
         setupStep = when {
             // 被「受限制的設定」擋住時，要先解除，否則協助工具開關按不下去
+            !a11yOk && OemHelper.needsReveal(this) && "reveal" !in attempted -> "reveal"
             !a11yOk && OemHelper.isRestricted(this) && "unlock" !in attempted -> "unlock"
             !a11yOk && "a11y" !in attempted -> "a11y"
             !OemHelper.canTurnScreenOn(this) && "screenon" !in attempted -> "screenon"
@@ -80,7 +81,7 @@ class MainActivity : ComponentActivity() {
         setupStep = null
         when (step) {
             "unlock" -> OemHelper.openAppInfo(this)
-            "a11y" -> IdleAccessibilityService.openSettings(this)
+            "reveal", "a11y" -> IdleAccessibilityService.openSettings(this)
             else -> OemHelper.openTurnScreenOnSettings(this)
         }
     }
@@ -96,7 +97,9 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
                 setupStep?.let { step ->
-                    SetupDialog(step, withUnlock = "unlock" in attempted || step == "unlock",
+                    SetupDialog(step,
+                        withReveal = "reveal" in attempted || step == "reveal",
+                        withUnlock = "unlock" in attempted || step == "unlock" || step == "reveal",
                         onGo = { goToStep(step) }, onLater = ::skipSetup)
                 }
             }
@@ -116,19 +119,24 @@ class MainActivity : ComponentActivity() {
 
 /** 權限說明小視窗（外觀接近系統的權限詢問視窗）。 */
 @Composable
-private fun SetupDialog(step: String, withUnlock: Boolean, onGo: () -> Unit, onLater: () -> Unit) {
+private fun SetupDialog(step: String, withReveal: Boolean, withUnlock: Boolean, onGo: () -> Unit, onLater: () -> Unit) {
     val steps = buildList {
+        if (withReveal) add("reveal")
         if (withUnlock) add("unlock")
         add("a11y")
         if (Build.VERSION.SDK_INT >= 34) add("screenon")
     }
     val (title, body, hint) = when (step) {
-        "unlock" -> Triple(
+        "reveal" -> Triple(
             "先解除「受限制的設定」",
-            "IdleMate 不是從 Play 商店安裝的，Android 會先把協助工具鎖住，開關會是灰色、按不下去。" +
+            "IdleMate 不是從 Play 商店安裝的，Android 會先把協助工具鎖住（顯示「由受限制的設定控管」）。" +
                 "這是系統對所有商店外 App 的保護，只要解除一次就好。",
-            "按「前往」後，在 IdleMate 的應用程式資訊頁：右上角「⋮」→「允許受限制的設定」→ 驗證身分，再回到 IdleMate。\n" +
-                "如果「⋮」裡沒有這個選項：先到 設定 → 協助工具 點一次 IdleMate（會跳出「受限制的設定」，按確定），再回來就會出現。"
+            "按「前往」後，點一下灰色的「IdleMate」，看到「受限制的設定」提示按「確定」，再回到 IdleMate。"
+        )
+        "unlock" -> Triple(
+            "解除「受限制的設定」",
+            "接下來在 IdleMate 的應用程式資訊頁解除限制，之後協助工具就能開啟了。",
+            "按「前往」後：右上角「⋮」→「允許受限制的設定」→ 驗證身分，再回到 IdleMate。"
         )
         "a11y" -> Triple(
             "允許 IdleMate 使用協助工具？",
@@ -153,7 +161,7 @@ private fun SetupDialog(step: String, withUnlock: Boolean, onGo: () -> Unit, onL
                 Text("步驟 $no / $total　$hint", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = onGo) { Text(if (step == "unlock") "前往" else "前往開啟") } },
+        confirmButton = { TextButton(onClick = onGo) { Text(if (step == "unlock" || step == "reveal") "前往" else "前往開啟") } },
         dismissButton = { TextButton(onClick = onLater) { Text("稍後") } }
     )
 }
@@ -206,7 +214,8 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 )
                 if (restricted) {
                     Text(
-                        "因為不是從 Play 商店安裝，Android 會先鎖住協助工具（開關是灰色）。解除一次即可，之後更新不用再做。",
+                        "因為不是從 Play 商店安裝，Android 會先鎖住協助工具（開關是灰色）。解除一次即可，之後更新不用再做。" +
+                            "如果「⋮」裡沒有這個選項，先到協助工具點一次灰色的 IdleMate，按「確定」後再回來。",
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedButton(onClick = { OemHelper.openAppInfo(ctx) }) { Text("開啟 IdleMate 的應用程式資訊") }
