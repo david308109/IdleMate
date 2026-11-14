@@ -92,6 +92,8 @@ class EdgeHandleService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         if (!OemHelper.canOverlay(this)) { stopSelf(); return START_NOT_STICKY }
+        // 暖機：先連上 Shizuku 服務並載入系統函式庫，讓第一次關面板不會卡
+        if (ShizukuHelper.granted()) ShizukuHelper.setDisplayPower(this, on = true) { }
         if (handle == null) {
             wm = getSystemService(WINDOW_SERVICE) as WindowManager
             prefs = Prefs(this)
@@ -267,7 +269,7 @@ class EdgeHandleService : Service() {
             ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
             addTouchWatcher()
             startTouchPolling()
-        }, 400)
+        }, 250)
     }
 
     /** 透過 shell 行程的 getevent 偵測觸控（黑屏時視窗收不到觸碰事件）。 */

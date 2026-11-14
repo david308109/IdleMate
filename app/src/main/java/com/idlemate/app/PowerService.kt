@@ -85,7 +85,8 @@ class PowerService : IPowerService.Stub() {
                                 val value = bb.getInt(o + 20)
                                 evCount++
                                 if ((type == 1 && code == 0x14a && value == 1) ||
-                                    (type == 3 && code == 0x39 && value != -1)) {
+                                    (type == 3 && code == 0x39 && value != -1) ||
+                                    (type == 1 && (code == 114 || code == 115) && value == 1)) {
                                     if (gen == touchGen) lastTouch = System.currentTimeMillis()
                                 }
                                 o += 24
