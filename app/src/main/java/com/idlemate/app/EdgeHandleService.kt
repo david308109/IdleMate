@@ -2,7 +2,6 @@ package com.idlemate.app
 
 import android.app.Service
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -10,18 +9,16 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.media.session.MediaSessionManager
-import android.media.session.PlaybackState
 import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.view.GestureDetector
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -30,11 +27,10 @@ import android.widget.Toast
 import kotlin.math.abs
 
 /**
- * 螢幕邊緣把手 + 一鍵鎖屏。
+ * 螢幕邊緣把手 + 關閉螢幕面板。
  * - 把手：貼邊的一條細線，往內滑（或點一下）展開選單。
- * - 選單按鈕「點一下就執行」：真的把螢幕鎖掉，並在鎖屏期間
- *   ① 持有 CPU / Wi-Fi 鎖讓 App 繼續運作；
- *   ② 若鎖屏前正在播放聲音，鎖屏後 App 把播放暫停時，直接對它的播放器下「播放」。
+ * - 選單按鈕「點一下就執行」：透過 Shizuku 把實體螢幕面板關掉，但系統並未進入睡眠，
+ *   所以 YouTube 等 App 不會收到「螢幕關閉」而暫停。雙擊螢幕可恢復。
  */
 class EdgeHandleService : Service() {
     private lateinit var wm: WindowManager
@@ -44,19 +40,15 @@ class EdgeHandleService : Service() {
     private var handle: View? = null
     private var panel: View? = null
 
-    // 鎖屏工作階段
+    // 螢幕面板關閉期間的工作階段
     private var sessionActive = false
-    private var wasPlaying = false
+    private var cover: View? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> onScreenOff()
-                Intent.ACTION_SCREEN_ON -> endSession()   // 使用者回來了，結束這次掛機
-            }
-        }
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        // 使用者在面板關閉期間按了電源鍵 → 系統真的睡眠了，結束本次，面板電源交給系統處理
+        override fun onReceive(context: Context, intent: Intent) = endSession(restorePanel = false)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -144,8 +136,8 @@ class EdgeHandleService : Service() {
             }
             setPadding(0, dp(6), 0, dp(6))
         }
-        box.addView(item("🔋 螢幕關閉掛機") { lockAndKeep(resumeAudio = false) })
-        box.addView(item("🎧 待機聽劇") { lockAndKeep(resumeAudio = true) })
+        box.addView(item("🔋 螢幕關閉掛機") { startSession() })
+        box.addView(item("🎧 待機聽劇") { startSession() })
         box.addView(item("收起") { closePanel() }.apply { setTextColor(0xFF90A4AE.toInt()) })
 
         box.setOnTouchListener { _, e ->
@@ -166,92 +158,80 @@ class EdgeHandleService : Service() {
         panel = null
         p.animate().translationX((if (left) -1 else 1) * dp(220).toFloat()).setDuration(150)
             .withEndAction { runCatching { wm.removeView(p) } }.start()
-        handle?.visibility = View.VISIBLE
+        if (!sessionActive) handle?.visibility = View.VISIBLE
     }
 
-    // ───────────── 一鍵鎖屏 ─────────────
+    // ───────────── 關閉螢幕面板 ─────────────
 
-    private fun lockAndKeep(resumeAudio: Boolean) {
+    private fun startSession() {
         closePanel()
-        if (!ScreenLock.isAdminActive(this)) {
-            ScreenLock.requestAdmin(this)
-            Toast.makeText(this, "請先啟用「裝置管理員」，才能自動關閉螢幕", Toast.LENGTH_LONG).show()
+        if (!ShizukuHelper.granted()) {
+            val msg = when {
+                !ShizukuHelper.installed(this) -> "請先安裝 Shizuku"
+                !ShizukuHelper.running() -> "請先啟動 Shizuku（用無線偵錯）"
+                else -> "請在 IdleMate 內授權 Shizuku"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
             return
         }
-        endSession()
+        if (sessionActive) return
         sessionActive = true
-        val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        wasPlaying = resumeAudio && am.isMusicActive
-        DebugLog.add(this, "── 點擊 ${if (resumeAudio) "待機聽劇" else "掛機"}：鎖屏前正在播放=${am.isMusicActive}，" +
-            "通知存取權=${OemHelper.isNotificationListenerEnabled(this)}")
+        handle?.visibility = View.GONE
+
+        addCover()
 
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:session")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:panel-off")
             .apply { setReferenceCounted(false); acquire() }
         wifiLock = (applicationContext.getSystemService(WIFI_SERVICE) as WifiManager)
-            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:session-wifi")
+            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:panel-off-wifi")
             .apply { setReferenceCounted(false); acquire() }
-        registerReceiver(screenReceiver, IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+
+        // 等選單收起後再關面板
+        handler.postDelayed({
+            if (!sessionActive) return@postDelayed
+            ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
+        }, 400)
+    }
+
+    /** 全螢幕透明視窗：吃掉所有觸控（避免口袋誤觸）、保持系統清醒，雙擊才恢復。 */
+    private fun addCover() {
+        val lp = WindowManager.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            PixelFormat.TRANSLUCENT
+        )
+        val v = FrameLayout(this)
+        val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+            override fun onDoubleTap(e: MotionEvent): Boolean { endSession(restorePanel = true); return true }
         })
-
-        // 等選單收起、接收器就緒後再鎖屏
-        handler.postDelayed({ ScreenLock.lockNow(this) }, 400)
+        v.setOnTouchListener { _, e -> gestures.onTouchEvent(e); true }
+        wm.addView(v, lp)
+        cover = v
     }
 
-    /** 螢幕關掉後，若原本在播放，就反覆確認聲音有沒有被 App 暫停，被暫停就叫它繼續。 */
-    private fun onScreenOff() {
-        DebugLog.add(this, "螢幕已關閉（工作階段=$sessionActive，需恢復播放=$wasPlaying）")
-        if (!sessionActive || !wasPlaying) return
-        val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        val delays = longArrayOf(300, 800, 1500, 3000, 5000, 8000, 12000)
-        delays.forEachIndexed { i, delay ->
-            handler.postDelayed({
-                if (!sessionActive) return@postDelayed
-                val active = am.isMusicActive
-                if (active) {
-                    DebugLog.add(this, "+${delay}ms 聲音正在播放 ✓")
-                } else {
-                    resumeNow(am, delay, tryKey = i >= 2)
-                }
-            }, delay)
-        }
-    }
-
-    /** 先對播放器直接下「播放」（需通知存取權）；稍後仍沒聲音，再加送系統媒體鍵。 */
-    private fun resumeNow(am: AudioManager, delay: Long, tryKey: Boolean) {
-        val summary = StringBuilder("+${delay}ms 沒有聲音 → ")
-        val direct = runCatching {
-            val msm = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val sessions = msm.getActiveSessions(ComponentName(this, MediaListener::class.java))
-            summary.append("播放器=").append(
-                sessions.joinToString { "${it.packageName}:${it.playbackState?.state}" }.ifEmpty { "無" }
-            )
-            val target = sessions.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PAUSED }
-                ?: sessions.firstOrNull()
-            target?.transportControls?.play() ?: error("沒有可控制的播放器")
-            summary.append(" 已送出play(${target.packageName})")
-        }.onFailure { summary.append(" 直接控制失敗：${it.javaClass.simpleName} ${it.message ?: ""}") }
-            .isSuccess
-        if (!direct || tryKey) {
-            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
-            am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
-            summary.append(" 已送出媒體鍵")
-        }
-        DebugLog.add(this, summary.toString())
-    }
-
-    private fun endSession() {
+    private fun endSession(restorePanel: Boolean) {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
-        runCatching { unregisterReceiver(screenReceiver) }
+        cover?.let { runCatching { wm.removeView(it) } }; cover = null
+        runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
+        if (restorePanel) {
+            ShizukuHelper.setDisplayPower(this, on = true) { DebugLog.add(this, "恢復面板：$it") }
+        }
+        handle?.visibility = View.VISIBLE
     }
 
     override fun onDestroy() {
-        endSession()
+        endSession(restorePanel = true)
         panel?.let { runCatching { wm.removeView(it) } }
         handle?.let { runCatching { wm.removeView(it) } }
         panel = null; handle = null
