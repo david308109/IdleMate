@@ -111,8 +111,14 @@ class PowerService : IPowerService.Stub() {
         return "${c.javaClass.simpleName}: ${c.message}"
     }
 
-    private fun apply(on: Boolean): String {
-        val mode = if (on) POWER_MODE_NORMAL else POWER_MODE_OFF
+    override fun setDisplayMode(mode: Int): String = synchronized(LOCK) {
+        try { applyMode(mode) } catch (t: Throwable) { "未預期的錯誤：${describe(t)}" }
+    }
+
+    private fun apply(on: Boolean): String = applyMode(if (on) POWER_MODE_NORMAL else POWER_MODE_OFF)
+
+    private fun applyMode(mode: Int): String {
+        val on = mode == POWER_MODE_NORMAL
         val sb = StringBuilder("SDK=${Build.VERSION.SDK_INT} ")
 
         val sc = Class.forName("android.view.SurfaceControl")

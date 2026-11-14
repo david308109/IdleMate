@@ -19,4 +19,7 @@ interface IPowerService {
     long touchStamp() = 5;
     void stopTouchWatch() = 6;
     String touchInfo() = 7;
+
+    // 直接指定面板電源模式：0=關閉 1=低功耗顯示(DOZE) 2=正常
+    String setDisplayMode(int mode) = 8;
 }

@@ -234,6 +234,14 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                     Button(onClick = { OemHelper.openOverlaySettings(ctx) }) { Text("前往授權") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("實驗：低功耗顯示模式")
+                        Text("關面板時改用低功耗顯示，點螢幕有機會喚醒；畫面可能不是全黑", style = MaterialTheme.typography.bodySmall)
+                    }
+                    var doze by remember(refreshTick) { mutableStateOf(prefs.dozeOff) }
+                    Switch(checked = doze, onCheckedChange = { doze = it; prefs.dozeOff = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("放在左邊", modifier = Modifier.weight(1f))
                     Switch(checked = edgeLeft, onCheckedChange = {
                         edgeLeft = it; prefs.edgeLeft = it

@@ -12,6 +12,10 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.wifi.WifiManager
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -266,10 +270,47 @@ class EdgeHandleService : Service() {
         // 等選單收起後再關面板
         handler.postDelayed({
             if (!sessionActive) return@postDelayed
-            ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
+            val mode = if (prefs.dozeOff) 1 else 0
+            ShizukuHelper.setDisplayMode(this, mode) { DebugLog.add(this, "關閉面板(模式$mode)：$it") }
             addTouchWatcher()
             startTouchPolling()
+            startPickUpWatch()
         }, 250)
+    }
+
+    private var pickUpListener: TriggerEventListener? = null
+    private var pickUpSensor: Sensor? = null
+
+    /** 拿起手機就喚醒（感測器，不靠觸控）。面板關閉後 3 秒才開始監聽，避免剛按完還拿在手上就誤觸發。 */
+    private fun startPickUpWatch() {
+        val sm = getSystemService(SENSOR_SERVICE) as SensorManager
+        val sensor = sm.getDefaultSensor(25 /* TYPE_PICK_UP_GESTURE */, true)
+            ?: sm.getDefaultSensor(25)
+        if (sensor == null) { DebugLog.add(this, "拿起偵測：此手機沒有拿起感測器"); return }
+        val l = object : TriggerEventListener() {
+            override fun onTrigger(event: TriggerEvent?) {
+                handler.post {
+                    if (sessionActive) {
+                        DebugLog.add(this@EdgeHandleService, "偵測到拿起手機 → 恢復面板並顯示鎖屏")
+                        endSession(restorePanel = true, lockAfterRestore = true)
+                    }
+                }
+            }
+        }
+        handler.postDelayed({
+            if (!sessionActive) return@postDelayed
+            val ok = sm.requestTriggerSensor(l, sensor)
+            DebugLog.add(this, "拿起偵測：${if (ok) "已開始" else "啟動失敗"}（${sensor.name}）")
+            if (ok) { pickUpListener = l; pickUpSensor = sensor }
+        }, 3000)
+    }
+
+    private fun stopPickUpWatch() {
+        val l = pickUpListener; val s = pickUpSensor
+        if (l != null && s != null) runCatching {
+            (getSystemService(SENSOR_SERVICE) as SensorManager).cancelTriggerSensor(l, s)
+        }
+        pickUpListener = null; pickUpSensor = null
     }
 
     /** 透過 shell 行程的 getevent 偵測觸控（黑屏時視窗收不到觸碰事件）。 */
@@ -338,6 +379,7 @@ class EdgeHandleService : Service() {
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
         touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
+        stopPickUpWatch()
         ShizukuHelper.stopTouchWatch { DebugLog.add(this, "觸控監聽結束：$it") }
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null

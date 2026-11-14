@@ -21,6 +21,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("edgeLeft", false)
         set(v) = sp.edit().putBoolean("edgeLeft", v).apply()
 
+    /** 實驗：關面板時用「低功耗顯示」模式（觸控可能仍可用，但畫面不一定全黑） */
+    var dozeOff: Boolean
+        get() = sp.getBoolean("dozeOff", false)
+        set(v) = sp.edit().putBoolean("dozeOff", v).apply()
+
     /** 把手垂直偏移（px，相對螢幕中央） */
     var edgeOffsetY: Int
         get() = sp.getInt("edgeOffsetY", 0)
