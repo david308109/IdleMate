@@ -85,10 +85,8 @@ object OemHelper {
     }
 
     fun openTurnScreenOnSettings(ctx: Context) {
-        val tries = listOf(
-            Intent("android.settings.TURN_SCREEN_ON_SETTINGS").setData(Uri.parse("package:${ctx.packageName}")),
-            Intent("android.settings.TURN_SCREEN_ON_SETTINGS")
-        )
+        // 注意：帶 package 的版本在 Pixel 上會讓「設定」閃退，所以只開清單頁
+        val tries = listOf(Intent("android.settings.TURN_SCREEN_ON_SETTINGS"))
         for (i in tries) {
             try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (_: Exception) { }
         }

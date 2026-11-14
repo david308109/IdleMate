@@ -327,18 +327,25 @@ class IdleAccessibilityService : AccessibilityService() {
         updateHandle()
     }
 
-    /** 亮屏：用一個會點亮螢幕的透明小畫面（不需要額外權限）；若已有「點亮螢幕」權限也一併使用。 */
+    /**
+     * 亮屏：
+     * - 有「點亮螢幕」權限 → 系統直接亮屏（最自然）。
+     * - 沒有 → 改用會點亮螢幕的透明小畫面（不需要權限，但亮屏動畫不同）。
+     */
     @Suppress("DEPRECATION")
     private fun wakeScreen() {
+        if (OemHelper.canTurnScreenOn(this)) {
+            val ok = runCatching {
+                (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
+                ).acquire(2000)
+            }.isSuccess
+            if (ok) { DebugLog.add(this, "亮屏：系統直接亮屏"); return }
+        }
         runCatching {
             startActivity(Intent(this, WakeActivity::class.java).addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             ))
         }.onFailure { DebugLog.add(this, "亮屏畫面失敗：$it") }
-        if (OemHelper.canTurnScreenOn(this)) runCatching {
-            (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
-            ).acquire(2000)
-        }
     }
 }

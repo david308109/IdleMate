@@ -121,6 +121,20 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
             }
         }
 
+        // ── 選填：點亮螢幕（亮屏比較自然） ──
+        if (a11yOk && !OemHelper.canTurnScreenOn(ctx)) Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("選填：亮屏更自然", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "不開也能用。開啟「點亮螢幕」後，點兩下或按電源鍵時會由系統直接亮屏，看起來比較自然。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = { OemHelper.openTurnScreenOnSettings(ctx) }) {
+                    Text("前往「點亮螢幕」，開啟 IdleMate")
+                }
+            }
+        }
+
         // ── 使用說明 ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
