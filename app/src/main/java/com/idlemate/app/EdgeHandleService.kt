@@ -64,9 +64,10 @@ class EdgeHandleService : Service() {
                 cornerRadius = dp(3).toFloat(); setColor(0xB0546E7A.toInt())
             }
         }
+        val onLeft = left
         val touch = FrameLayout(this).apply {
             addView(bar, FrameLayout.LayoutParams(dp(5), dp(96),
-                (if (left) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL))
+                (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL))
         }
         val lp = params(dp(28), dp(120))
 
