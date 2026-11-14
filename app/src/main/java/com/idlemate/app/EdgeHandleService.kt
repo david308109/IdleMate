@@ -311,62 +311,6 @@ class EdgeHandleService : Service() {
         pickUpListener = null; pickUpSensor = null
     }
 
-    private var pickUpListener: TriggerEventListener? = null
-    private var pickUpSensor: Sensor? = null
-
-    /** 拿起手機就喚醒（感測器，不靠觸控）。面板關閉後 3 秒才開始監聽，避免剛按完還拿在手上就誤觸發。 */
-    private fun startPickUpWatch() {
-        val sm = getSystemService(SENSOR_SERVICE) as SensorManager
-        val sensor = sm.getDefaultSensor(25 /* TYPE_PICK_UP_GESTURE */, true)
-            ?: sm.getDefaultSensor(25)
-        if (sensor == null) { DebugLog.add(this, "拿起偵測：此手機沒有拿起感測器"); return }
-        val l = object : TriggerEventListener() {
-            override fun onTrigger(event: TriggerEvent?) {
-                handler.post {
-                    if (sessionActive) {
-                        DebugLog.add(this@EdgeHandleService, "偵測到拿起手機 → 恢復面板並顯示鎖屏")
-                        endSession(restorePanel = true, lockAfterRestore = true)
-                    }
-                }
-            }
-        }
-        handler.postDelayed({
-            if (!sessionActive) return@postDelayed
-            val ok = sm.requestTriggerSensor(l, sensor)
-            DebugLog.add(this, "拿起偵測：${if (ok) "已開始" else "啟動失敗"}（${sensor.name}）")
-            if (ok) { pickUpListener = l; pickUpSensor = sensor }
-        }, 3000)
-    }
-
-    private fun stopPickUpWatch() {
-        val l = pickUpListener; val s = pickUpSensor
-        if (l != null && s != null) runCatching {
-            (getSystemService(SENSOR_SERVICE) as SensorManager).cancelTriggerSensor(l, s)
-        }
-        pickUpListener = null; pickUpSensor = null
-    }
-
-    /** 透過 shell 行程的 getevent 偵測觸控（黑屏時視窗收不到觸碰事件）。 */
-    private fun startTouchPolling() {
-        val startAt = System.currentTimeMillis()
-        ShizukuHelper.startTouchWatch(this) { DebugLog.add(this, "觸控監聽：$it") }
-        val tick = object : Runnable {
-            override fun run() {
-                if (!sessionActive) return
-                ShizukuHelper.touchStamp { stamp ->
-                    handler.post {
-                        if (sessionActive && stamp > startAt + 800) {
-                            DebugLog.add(this@EdgeHandleService, "偵測到觸碰(getevent) → 恢復面板並顯示鎖屏")
-                            endSession(restorePanel = true, lockAfterRestore = true)
-                        }
-                    }
-                }
-                handler.postDelayed(this, 150)
-            }
-        }
-        handler.postDelayed(tick, 150)
-    }
-
     /**
      * 1×1 透明視窗，只「旁聽」螢幕上的任何觸碰（觸碰仍照常傳給底下的 App）。
      * 面板關閉後點一下螢幕 → 面板恢復並顯示鎖屏畫面。
