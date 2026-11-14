@@ -84,31 +84,24 @@ object OemHelper {
         return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
+    /** 測試用：假裝是「從檔案安裝」（由 MainActivity 的 intent extra 設定） */
+    var simulateSideload = false
+
     /**
-     * 不是從商店安裝的 App，Android 13 起會擋住協助工具（「受限制的設定」）。
-     * - MODE_ERRORED：被擋住，且使用者還沒點過（「⋮」裡還沒有「允許受限制的設定」）
-     * - MODE_IGNORED：被擋住，但使用者已在協助工具點過一次，「⋮」選項已出現
-     * - MODE_ALLOWED / 預設：沒被擋
+     * Android 13 起，「從檔案安裝」的 App 會被擋住協助工具（「受限制的設定」）。
+     * 系統不讓一般 App 讀取被擋住的狀態本身（需要系統權限），
+     * 所以改看安裝來源：只有本機檔案 / 下載的檔案會被擋，商店或 adb 安裝不會。
+     * 注意：這只知道「可能被擋」，不知道使用者是否已經解除過。
      */
-    private fun restrictedMode(ctx: Context): Int {
-        if (android.os.Build.VERSION.SDK_INT < 33) return android.app.AppOpsManager.MODE_ALLOWED
-        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
-        val r = runCatching {
-            ops.unsafeCheckOpNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
-        }
-        val raw = runCatching {
-            ops.unsafeCheckOpRawNoThrow("android:access_restricted_settings", android.os.Process.myUid(), ctx.packageName)
-        }
-        DebugLog.add(ctx, "受限制設定 mode=${r.getOrNull()} raw=${raw.getOrNull()} err=${r.exceptionOrNull() ?: raw.exceptionOrNull()}")
-        return r.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED)
+    fun mayBeRestricted(ctx: Context): Boolean {
+        if (simulateSideload) return true
+        if (android.os.Build.VERSION.SDK_INT < 33) return false
+        val src = runCatching {
+            ctx.packageManager.getInstallSourceInfo(ctx.packageName).packageSource
+        }.getOrDefault(android.content.pm.PackageInstaller.PACKAGE_SOURCE_UNSPECIFIED)
+        return src == android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE ||
+            src == android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE
     }
-
-    fun isRestricted(ctx: Context): Boolean = restrictedMode(ctx).let {
-        it == android.app.AppOpsManager.MODE_ERRORED || it == android.app.AppOpsManager.MODE_IGNORED
-    }
-
-    /** 被擋住，而且「⋮ → 允許受限制的設定」還沒出現（要先到協助工具點一次 IdleMate） */
-    fun needsReveal(ctx: Context): Boolean = restrictedMode(ctx) == android.app.AppOpsManager.MODE_ERRORED
 
     fun openAppInfo(ctx: Context) =
         start(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))

@@ -63,8 +63,8 @@ class MainActivity : ComponentActivity() {
         val a11yOk = IdleAccessibilityService.isEnabled(this)
         setupStep = when {
             // 被「受限制的設定」擋住時，要先解除，否則協助工具開關按不下去
-            !a11yOk && OemHelper.needsReveal(this) && "reveal" !in attempted -> "reveal"
-            !a11yOk && OemHelper.isRestricted(this) && "unlock" !in attempted -> "unlock"
+            !a11yOk && OemHelper.mayBeRestricted(this) && "reveal" !in attempted -> "reveal"
+            !a11yOk && OemHelper.mayBeRestricted(this) && "unlock" !in attempted -> "unlock"
             !a11yOk && "a11y" !in attempted -> "a11y"
             !OemHelper.canTurnScreenOn(this) && "screenon" !in attempted -> "screenon"
             else -> {
@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra("simulate_sideload", false) == true) OemHelper.simulateSideload = true
         setContent {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
@@ -131,7 +132,8 @@ private fun SetupDialog(step: String, withReveal: Boolean, withUnlock: Boolean, 
             "先解除「受限制的設定」",
             "IdleMate 不是從 Play 商店安裝的，Android 會先把協助工具鎖住（顯示「由受限制的設定控管」）。" +
                 "這是系統對所有商店外 App 的保護，只要解除一次就好。",
-            "按「前往」後，點一下灰色的「IdleMate」，看到「受限制的設定」提示按「確定」，再回到 IdleMate。"
+            "按「前往」後，點一下灰色的「IdleMate」，看到「受限制的設定」提示按「確定」，再回到 IdleMate。\n" +
+                "如果 IdleMate 不是灰色（之前已經解除過），直接打開開關就完成了。"
         )
         "unlock" -> Triple(
             "解除「受限制的設定」",
@@ -198,8 +200,8 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         if (!a11yOk || !screenOnOk) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("設定（只需一次）", style = MaterialTheme.typography.titleMedium)
-                val restricted = !a11yOk && OemHelper.isRestricted(ctx)
-                if (restricted) Text("⬜ 解除限制：應用程式資訊 →「⋮」→「允許受限制的設定」")
+                val restricted = !a11yOk && OemHelper.mayBeRestricted(ctx)
+                if (restricted) Text("⬜ 解除限制（開關是灰色時）：應用程式資訊 →「⋮」→「允許受限制的設定」")
                 Text("${if (a11yOk) "✅" else "⬜"} 協助工具：開啟「IdleMate」")
                 Text("${if (screenOnOk) "✅" else "⬜"} 點亮螢幕：開啟「IdleMate」（鎖定後自動亮屏，直接看到鎖屏）")
                 Button(onClick = onSetup) { Text("開始設定") }
