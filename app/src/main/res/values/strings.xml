@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">IdleMate</string>
+    <string name="a11y_desc">IdleMate 用協助工具做三件事：知道你目前開著哪個 App（決定邊緣把手要不要出現）、在「待機聽劇／螢幕關閉掛機」時畫出全黑畫面並擋住誤觸、以及鎖定螢幕。IdleMate 不會讀取任何畫面內容，也沒有網路權限。</string>
 </resources>

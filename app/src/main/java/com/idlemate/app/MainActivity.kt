@@ -62,9 +62,10 @@ class MainActivity : ComponentActivity() {
         fun once(key: String) = attempted.add(key)
         when {
             !OemHelper.canOverlay(this) && once("overlay") -> OemHelper.openOverlaySettings(this)
+            !IdleAccessibilityService.isEnabled(this) && once("a11y") -> IdleAccessibilityService.openSettings(this)
+            !OemHelper.canTurnScreenOn(this) && once("screenon") -> OemHelper.openTurnScreenOnSettings(this)
             !OemHelper.isIgnoringBatteryOptimizations(this) && once("battery") ->
                 OemHelper.requestIgnoreBatteryOptimizations(this)
-            !OemHelper.usageAccessGranted(this) && once("usage") -> OemHelper.openUsageAccessSettings(this)
             Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED && once("notif") ->
@@ -119,11 +120,9 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
 
     val overlayOk = OemHelper.canOverlay(ctx)
     val batteryOk = OemHelper.isIgnoringBatteryOptimizations(ctx)
-    val shizukuInstalled = ShizukuHelper.installed(ctx)
-    val shizukuRunning = ShizukuHelper.running()
-    val shizukuGranted = ShizukuHelper.granted()
-    val usageOk = OemHelper.usageAccessGranted(ctx)
-    val allReady = overlayOk && batteryOk && usageOk
+    val a11yOk = IdleAccessibilityService.isEnabled(ctx)
+    val screenOnOk = OemHelper.canTurnScreenOn(ctx)
+    val allReady = overlayOk && a11yOk && screenOnOk && batteryOk
     var showKeepPicker by remember { mutableStateOf(false) }
     var showMediaPicker by remember { mutableStateOf(false) }
     var pickerTick by remember { mutableStateOf(0) }
@@ -138,30 +137,14 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         if (!allReady) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("首次設定（只需一次）", style = MaterialTheme.typography.titleMedium)
-                Text("${if (overlayOk) "✅" else "⬜"} 顯示邊緣把手（懸浮視窗）")
+                Text("${if (overlayOk) "✅" else "⬜"} 顯示在其他應用程式上層（邊緣把手）")
+                Text("${if (a11yOk) "✅" else "⬜"} 協助工具：開啟「IdleMate」（全黑畫面、知道目前的 App、鎖定螢幕）")
+                Text("${if (screenOnOk) "✅" else "⬜"} 點亮螢幕（鎖定後自動亮屏，直接看到鎖屏）")
                 Text("${if (batteryOk) "✅" else "⬜"} 允許背景運行")
-                Text("${if (usageOk) "✅" else "⬜"} 使用狀況存取（用來知道你正在用哪個 App，只在指定 App 顯示把手）")
                 Button(onClick = onSetup) { Text("一鍵完成設定") }
-                Text("系統規定這些授權必須由你親自按同意，App 無法代按。",
+                Text("系統規定這些授權必須由你親自按同意，App 無法代按。開啟協助工具時系統會顯示「可讀取螢幕內容」等說明，" +
+                    "IdleMate 實際上不讀取任何畫面內容，只用來畫全黑畫面、知道目前的 App 與鎖定螢幕，也沒有網路權限。",
                     style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        // ── Shizuku（關閉螢幕面板所需） ──
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Shizuku（關閉螢幕面板所需）", style = MaterialTheme.typography.titleMedium)
-                Text("${if (shizukuInstalled) "✅" else "⬜"} 已安裝 Shizuku")
-                Text("${if (shizukuRunning) "✅" else "⬜"} Shizuku 已啟動（用「無線偵錯」啟動，重新開機後要再啟動一次）")
-                Text("${if (shizukuGranted) "✅" else "⬜"} 已授權 IdleMate")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ShizukuHelper.openShizukuApp(ctx) }) {
-                        Text(if (shizukuInstalled) "開啟 Shizuku" else "下載 Shizuku")
-                    }
-                    if (shizukuRunning && !shizukuGranted) Button(onClick = { ShizukuHelper.requestPermission() }) {
-                        Text("授權 IdleMate")
-                    }
-                }
             }
         }
 
@@ -171,11 +154,11 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                 Text("怎麼用", style = MaterialTheme.typography.titleMedium)
                 Text("1. 打開你指定的 App（預設：遊戲用掛機、YouTube 用待機聽劇），螢幕邊緣會出現一條細線。")
                 Text("2. 從細線往內滑，展開選單，只會列出適用於這個 App 的功能。")
-                Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，螢幕面板立刻關閉。")
-                Text("4. 要回來時，按一次電源鍵，就是正常的鎖屏畫面，解鎖即可。")
+                Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，畫面立刻全黑，App 與影片照常運行。")
+                Text("4. 要回來時，在螢幕上點兩下，或按一次電源鍵，就會直接看到鎖屏畫面，解鎖即可。")
                 Text(
-                    "兩個按鈕都是「點一下就執行」，不用開關。螢幕面板關閉但系統並沒有睡眠，所以 App 與影片照常運行；" +
-                        "期間觸控會被攔下，不會誤觸。按電源鍵後影片會停，這是正常的。",
+                    "兩個按鈕都是「點一下就執行」，不用開關。全黑期間系統沒有睡眠，所以 App 與影片照常運行；" +
+                        "點擊會被擋下，不會誤觸（點兩下除外）。鎖屏後影片會停，這是正常的。",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -214,49 +197,6 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                     Text(log.ifEmpty { "（還沒有紀錄。測試後回到這裡查看）" }, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(onClick = { DebugLog.clear(ctx); logTick++ }) { Text("清除紀錄") }
-            }
-        }
-
-        // ── 診斷：鎖屏時是誰停了 YouTube ──
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("診斷 v9：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    listOf(
-                        "1. 按「開始擷取」",
-                        "2. 開 YouTube 播放影片",
-                        "3. 按電源鍵鎖屏，等 5 秒，再按電源鍵亮屏",
-                        "4. 回到 IdleMate，按「結束並顯示」"
-                    ).joinToString(System.lineSeparator()),
-                    style = MaterialTheme.typography.bodySmall)
-                var diag by remember { mutableStateOf("") }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        if (!ShizukuHelper.granted()) diag = "請先啟動並授權 Shizuku"
-                        else { diag = "擷取中…"; ShizukuHelper.startLogCapture(ctx) { r -> diag = r } }
-                    }) { Text("開始擷取") }
-                    OutlinedButton(onClick = {
-                        ShizukuHelper.stopLogCapture(ctx) { r -> diag = r }
-                    }) { Text("結束並顯示") }
-                }
-                OutlinedButton(onClick = {
-                    if (!ShizukuHelper.granted()) diag = "請先啟動並授權 Shizuku"
-                    else { diag = "探測中…（約 10～30 秒）"; ShizukuHelper.probeTouch(ctx) { r -> diag = r } }
-                }) { Text("探測觸控控制入口") }
-                Text("完整日誌存檔（存到手機「下載」資料夾，用來分析其他手機，例如小米的待機聽劇）",
-                    style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        if (!ShizukuHelper.granted()) diag = "請先啟動並授權 Shizuku"
-                        else { diag = "開始中…"; ShizukuHelper.startFullCapture(ctx) { r -> diag = r } }
-                    }) { Text("開始完整存檔") }
-                    OutlinedButton(onClick = {
-                        ShizukuHelper.stopFullCapture(ctx) { r -> diag = r }
-                    }) { Text("結束完整存檔") }
-                }
-                if (diag.isNotEmpty()) androidx.compose.foundation.text.selection.SelectionContainer {
-                    Text(diag, style = MaterialTheme.typography.bodySmall)
-                }
             }
         }
 

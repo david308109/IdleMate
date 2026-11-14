@@ -1,8 +1,6 @@
 package com.idlemate.app
 
 import android.app.Service
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -11,11 +9,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.net.wifi.WifiManager
-import android.hardware.Sensor
-import android.hardware.SensorManager
-import android.hardware.TriggerEvent
-import android.hardware.TriggerEventListener
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -31,10 +24,11 @@ import android.widget.Toast
 import kotlin.math.abs
 
 /**
- * 螢幕邊緣把手 + 關閉螢幕面板。
+ * 螢幕邊緣把手 + 全黑遮罩。
  * - 把手只在「使用者指定的 App」位於前景時出現（掛機預設遊戲、聽劇預設 YouTube），
  *   選單也只列出適用於該 App 的功能。
- * - 點選單按鈕：透過 Shizuku 關掉螢幕面板，系統不睡眠，App 與影片照常運行。
+ * - 點選單按鈕：蓋上全黑遮罩（面板仍開著、系統不睡眠），App 與影片照常運行。
+ * - 點兩下螢幕或按電源鍵：移除遮罩、鎖定並亮屏，直接看到鎖屏畫面。
  */
 class EdgeHandleService : Service() {
     private lateinit var wm: WindowManager
@@ -46,36 +40,19 @@ class EdgeHandleService : Service() {
     private var panel: View? = null
 
     // 目前前景 App 與適用的功能
-    private var currentPkg: String? = null
-    private var lastPoll = 0L
     private var showKeep = true
     private var showMedia = true
 
-    // 螢幕面板關閉期間的工作階段
+    // 全黑遮罩期間的工作階段
     private var sessionActive = false
-    private var touchWatcher: View? = null
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var wifiLock: WifiManager.WifiLock? = null
-    private var awaitingWake = false
 
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                // 使用者按了電源鍵 → 系統真的睡眠了：結束本次，但保留接收器等待下次亮屏
-                Intent.ACTION_SCREEN_OFF -> if (sessionActive) {
-                    endSession(restorePanel = false, keepReceiver = true)
-                    awaitingWake = true
-                    // 立刻把螢幕叫醒（不等待），使用者只按一次電源鍵就看到鎖屏畫面
-                    wakeScreen()
-                }
-                // 亮屏時，保險起見再把面板電源設回正常
-                Intent.ACTION_SCREEN_ON -> if (awaitingWake) {
-                    awaitingWake = false
-                    runCatching { unregisterReceiver(this) }
-                    ShizukuHelper.setDisplayPower(this@EdgeHandleService, on = true) {
-                        DebugLog.add(this@EdgeHandleService, "亮屏後恢復面板：$it")
-                    }
-                }
+            // 按了電源鍵，或點兩下觸發了鎖定 → 系統睡眠並上鎖：移除遮罩，立刻亮屏，直接看到鎖屏
+            if (intent.action == Intent.ACTION_SCREEN_OFF && sessionActive) {
+                DebugLog.add(this@EdgeHandleService, "螢幕已關閉並上鎖 → 移除遮罩、亮屏")
+                endSession()
+                wakeScreen()
             }
         }
     }
@@ -83,7 +60,7 @@ class EdgeHandleService : Service() {
     private val pollRunnable = object : Runnable {
         override fun run() {
             pollForeground()
-            pollHandler.postDelayed(this, 1000)
+            pollHandler.postDelayed(this, 700)
         }
     }
 
@@ -96,14 +73,6 @@ class EdgeHandleService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         if (!OemHelper.canOverlay(this)) { stopSelf(); return START_NOT_STICKY }
-        // 上次黑屏若沒正常結束，先把電源鍵設定還原
-        if (!sessionActive) PowerKeyGuard.restore(this)?.let { DebugLog.add(this, it) }
-        // 暖機：先連上 Shizuku 服務並載入系統函式庫，讓第一次關面板不會卡
-        if (ShizukuHelper.granted()) {
-            ShizukuHelper.setDisplayPower(this, on = true) { }
-            // 取得「修改系統設定」權限（只需一次），之後 App 自己就能改／還原電源鍵行為
-            if (!PowerKeyGuard.canWrite(this)) ShizukuHelper.grantSecureSettings(this) { DebugLog.add(this, it) }
-        }
         if (handle == null) {
             wm = getSystemService(WINDOW_SERVICE) as WindowManager
             prefs = Prefs(this)
@@ -114,33 +83,18 @@ class EdgeHandleService : Service() {
         return START_STICKY
     }
 
-    // ───────────── 前景 App 偵測 ─────────────
+    // ───────────── 前景 App 偵測（由協助工具服務提供） ─────────────
 
     private fun pollForeground() {
-        if (!OemHelper.usageAccessGranted(this)) {
-            // 沒有「使用狀況存取」就無法分辨 App：先在所有 App 顯示兩個功能
+        val a11y = IdleAccessibilityService.instance
+        if (a11y == null) {
+            // 協助工具還沒開：先在所有 App 顯示兩個功能，點下去時再引導開啟
             showKeep = true; showMedia = true
-            updateHandle()
-            return
+        } else {
+            val pkg = a11y.foregroundPkg
+            showKeep = prefs.appliesKeep(pkg)
+            showMedia = prefs.appliesMedia(pkg)
         }
-        runCatching {
-            val usm = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
-            val now = System.currentTimeMillis()
-            val from = if (lastPoll == 0L) now - 24 * 3600_000L else lastPoll - 1500
-            val events = usm.queryEvents(from, now)
-            val e = UsageEvents.Event()
-            while (events.hasNextEvent()) {
-                events.getNextEvent(e)
-                @Suppress("DEPRECATION")
-                when (e.eventType) {
-                    UsageEvents.Event.MOVE_TO_FOREGROUND -> currentPkg = e.packageName
-                    UsageEvents.Event.MOVE_TO_BACKGROUND -> if (e.packageName == currentPkg) currentPkg = null
-                }
-            }
-            lastPoll = now
-        }
-        showKeep = prefs.appliesKeep(currentPkg)
-        showMedia = prefs.appliesMedia(currentPkg)
         updateHandle()
     }
 
@@ -246,181 +200,67 @@ class EdgeHandleService : Service() {
         updateHandle()
     }
 
-    // ───────────── 關閉螢幕面板 ─────────────
+    // ───────────── 全黑遮罩 ─────────────
 
     private fun startSession() {
         closePanel()
-        if (!ShizukuHelper.granted()) {
-            val msg = when {
-                !ShizukuHelper.installed(this) -> "請先安裝 Shizuku"
-                !ShizukuHelper.running() -> "請先啟動 Shizuku（用無線偵錯）"
-                else -> "請在 IdleMate 內授權 Shizuku"
-            }
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        val a11y = IdleAccessibilityService.instance
+        if (a11y == null) {
+            Toast.makeText(this, "請先開啟 IdleMate 的協助工具服務", Toast.LENGTH_LONG).show()
+            IdleAccessibilityService.openSettings(this)
             return
         }
         if (sessionActive) return
         sessionActive = true
         updateHandle()
+        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
 
-        wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IdleMate:panel-off")
-            .apply { setReferenceCounted(false); acquire() }
-        wifiLock = (applicationContext.getSystemService(WIFI_SERVICE) as WifiManager)
-            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "IdleMate:panel-off-wifi")
-            .apply { setReferenceCounted(false); acquire() }
-        registerReceiver(screenOffReceiver, IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
-        })
-
-        // 等選單收起後再關面板
+        // 等選單收起後再蓋上遮罩
         handler.postDelayed({
             if (!sessionActive) return@postDelayed
-            ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
-            blockPowerKey()
-            startKeyWatch()
-            startPickUpWatch()
-        }, 250)
-    }
-
-    /** 暫時讓電源鍵「按了不睡眠」，這樣按電源鍵會直接回到原本的 App，不會鎖屏、不會斷音。 */
-    private fun blockPowerKey() {
-        fun doBlock() {
-            val ok = PowerKeyGuard.block(this)
-            DebugLog.add(this, if (ok) "電源鍵：暫時不睡眠" else "電源鍵：無法改設定，按電源鍵會進鎖屏")
-        }
-        if (PowerKeyGuard.canWrite(this)) doBlock()
-        else ShizukuHelper.grantSecureSettings(this) { r ->
-            handler.post { DebugLog.add(this, r); if (sessionActive) doBlock() }
-        }
-    }
-
-    /** 監聽實體按鍵（電源鍵、音量鍵）：按下就恢復面板，直接回到原本的 App。 */
-    private fun startKeyWatch() {
-        val startAt = System.currentTimeMillis()
-        ShizukuHelper.startTouchWatch(this) { DebugLog.add(this, "按鍵監聽：$it") }
-        val tick = object : Runnable {
-            override fun run() {
-                if (!sessionActive) return
-                ShizukuHelper.touchStamp { stamp ->
-                    handler.post {
-                        if (sessionActive && stamp > startAt + 300) {
-                            DebugLog.add(this@EdgeHandleService, "偵測到按鍵 → 恢復面板，直接回到 App")
-                            endSession(restorePanel = true)
-                        }
-                    }
-                }
-                handler.postDelayed(this, 120)
+            val ok = a11y.showCover { onDoubleTap() }
+            if (ok) DebugLog.add(this, "全黑遮罩：開始")
+            else {
+                endSession()
+                Toast.makeText(this, "無法顯示全黑畫面", Toast.LENGTH_LONG).show()
             }
-        }
-        handler.postDelayed(tick, 120)
+        }, 200)
     }
 
-    private var pickUpListener: TriggerEventListener? = null
-    private var pickUpSensor: Sensor? = null
-
-    /** 拿起手機就喚醒（感測器，不靠觸控）。面板關閉後 3 秒才開始監聽，避免剛按完還拿在手上就誤觸發。 */
-    private fun startPickUpWatch() {
-        val sm = getSystemService(SENSOR_SERVICE) as SensorManager
-        val sensor = sm.getDefaultSensor(25 /* TYPE_PICK_UP_GESTURE */, true)
-            ?: sm.getDefaultSensor(25)
-        if (sensor == null) { DebugLog.add(this, "拿起偵測：此手機沒有拿起感測器"); return }
-        val l = object : TriggerEventListener() {
-            override fun onTrigger(event: TriggerEvent?) {
-                handler.post {
-                    if (sessionActive) {
-                        DebugLog.add(this@EdgeHandleService, "偵測到拿起手機 → 恢復面板，直接回到 App")
-                        endSession(restorePanel = true)
-                    }
-                }
-            }
+    /** 點兩下：鎖定螢幕；螢幕關閉後由 screenOffReceiver 移除遮罩並亮屏。 */
+    private fun onDoubleTap() {
+        if (!sessionActive) return
+        DebugLog.add(this, "點兩下 → 鎖定")
+        val locked = IdleAccessibilityService.instance?.lockScreen() ?: false
+        if (!locked) {
+            // Android 8 以前沒有鎖定功能：只移除遮罩
+            DebugLog.add(this, "無法鎖定，只移除遮罩")
+            endSession()
         }
-        handler.postDelayed({
-            if (!sessionActive) return@postDelayed
-            val ok = sm.requestTriggerSensor(l, sensor)
-            DebugLog.add(this, "拿起偵測：${if (ok) "已開始" else "啟動失敗"}（${sensor.name}）")
-            if (ok) { pickUpListener = l; pickUpSensor = sensor }
-        }, 3000)
-    }
-
-    private fun stopPickUpWatch() {
-        val l = pickUpListener; val s = pickUpSensor
-        if (l != null && s != null) runCatching {
-            (getSystemService(SENSOR_SERVICE) as SensorManager).cancelTriggerSensor(l, s)
-        }
-        pickUpListener = null; pickUpSensor = null
-    }
-
-    /**
-     * 1×1 透明視窗，只「旁聽」螢幕上的任何觸碰（觸碰仍照常傳給底下的 App）。
-     * 面板關閉後點一下螢幕 → 面板恢復並顯示鎖屏畫面。
-     */
-    private fun addTouchWatcher() {
-        val lp = WindowManager.LayoutParams(
-            1, 1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
-        val v = View(this)
-        v.setOnTouchListener { _, e ->
-            if (e.action == MotionEvent.ACTION_OUTSIDE) {
-                DebugLog.add(this, "偵測到觸碰 → 恢復面板並顯示鎖屏")
-                endSession(restorePanel = true, lockAfterRestore = true)
-            }
-            false
-        }
-        runCatching { wm.addView(v, lp) }
-        touchWatcher = v
     }
 
     @Suppress("DEPRECATION")
     private fun wakeScreen() {
-        // 方法一：帶「喚醒」旗標的喚醒鎖；方法二：以 shell 身分送出喚醒按鍵
+        // Android 14 以後需要「點亮螢幕」權限，否則亮不起來（使用者再按一次電源鍵即可）
         runCatching {
             (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "IdleMate:wake"
-            ).acquire(3000)
-        }.onFailure { DebugLog.add(this, "喚醒鎖失敗：$it") }
-        ShizukuHelper.wakeUp(this) { DebugLog.add(this, "喚醒：$it") }
+            ).acquire(2000)
+        }.onFailure { DebugLog.add(this, "亮屏失敗：$it") }
     }
 
-    private fun endSession(
-        restorePanel: Boolean,
-        keepReceiver: Boolean = false,
-        lockAfterRestore: Boolean = false
-    ) {
+    private fun endSession() {
         if (!sessionActive) return
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
-        touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
-        stopPickUpWatch()
-        ShizukuHelper.stopTouchWatch()
-        // 電源鍵的「短按」在放開時才生效：等 1.5 秒（確定已放開）再還原，避免放開那一下又讓手機睡眠
-        handler.postDelayed({
-            if (!sessionActive) PowerKeyGuard.restore(this)?.let { DebugLog.add(this, it) }
-        }, 1500)
-        if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
-        wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
-        wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null
-        if (restorePanel) {
-            ShizukuHelper.setDisplayPower(this, on = true) {
-                DebugLog.add(this, "恢復面板：$it")
-                // 恢復後顯示鎖屏畫面（需要解鎖才能回到 App）
-                if (lockAfterRestore) {
-                    ShizukuHelper.lockKeyguard(this) { r -> DebugLog.add(this, "鎖屏：$r") }
-                }
-            }
-        }
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        IdleAccessibilityService.instance?.hideCover()
         updateHandle()
     }
 
     override fun onDestroy() {
         pollHandler.removeCallbacksAndMessages(null)
-        endSession(restorePanel = true)
-        if (awaitingWake) runCatching { unregisterReceiver(screenOffReceiver) }
+        endSession()
         panel?.let { runCatching { wm.removeView(it) } }
         handle?.let { runCatching { wm.removeView(it) } }
         panel = null; handle = null

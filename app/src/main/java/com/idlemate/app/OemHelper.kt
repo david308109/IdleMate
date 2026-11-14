@@ -71,6 +71,30 @@ object OemHelper {
         ctx, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
     )
 
+    /**
+     * 「點亮螢幕」：Android 14 起，App 要自己把螢幕點亮需要這個特殊權限
+     * （設定 → 應用程式 → 特殊應用程式存取權 → 點亮螢幕）。更早的版本不需要。
+     */
+    fun canTurnScreenOn(ctx: Context): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 34) return true
+        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = runCatching {
+            ops.unsafeCheckOpNoThrow("android:turn_screen_on", android.os.Process.myUid(), ctx.packageName)
+        }.getOrDefault(android.app.AppOpsManager.MODE_ALLOWED)
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
+    fun openTurnScreenOnSettings(ctx: Context) {
+        val tries = listOf(
+            Intent("android.settings.TURN_SCREEN_ON_SETTINGS").setData(Uri.parse("package:${ctx.packageName}")),
+            Intent("android.settings.TURN_SCREEN_ON_SETTINGS")
+        )
+        for (i in tries) {
+            try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return } catch (_: Exception) { }
+        }
+        start(ctx, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+    }
+
     fun openOverlaySettings(ctx: Context) = start(
         ctx, Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}"))
     )
