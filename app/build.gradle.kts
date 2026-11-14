@@ -12,8 +12,9 @@ android {
         applicationId = "com.idlemate.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // 發布時由 GitHub Actions 提供：版本名稱取自標籤（v0.2.0 → 0.2.0），版本號取自建置次數（越來越大才能覆蓋安裝）
+        versionCode = System.getenv("IDLEMATE_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("IDLEMATE_VERSION_NAME") ?: "0.1.0-dev"
     }
 
     // 固定的除錯簽章：每次編譯的 APK 簽章相同，才能直接覆蓋安裝

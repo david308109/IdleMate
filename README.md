@@ -78,6 +78,7 @@ app/src/main/java/com/idlemate/app/
 | `IDLEMATE_KEYSTORE_B64` | PKCS12 金鑰檔的 base64 |
 | `IDLEMATE_KEYSTORE_PASSWORD` | 金鑰密碼 |
 | `IDLEMATE_KEY_ALIAS` | 金鑰別名 |
+| `RELEASES_TOKEN` | 只能寫入 [IdleMate-releases](https://github.com/david308109/IdleMate-releases) 的 fine-grained token（Contents: Read and write） |
 
 > 金鑰遺失就無法再發布可以覆蓋安裝的更新，請務必另外備份。換簽章時，使用者必須先解除安裝舊版。
 
@@ -86,6 +87,19 @@ app/src/main/java/com/idlemate/app/
 ```sh
 gradle assembleDebug
 ```
+
+### 發布新版本
+
+程式碼是私人的，安裝檔發布在公開的 [IdleMate-releases](https://github.com/david308109/IdleMate-releases/releases)。推一個 `v` 開頭的標籤，就會自動建置、簽章並發布：
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+- 版本名稱取自標籤（`v0.2.0` → `0.2.0`），版本號取自建置次數，所以每一版都能覆蓋安裝。
+- 更新說明會自動列出與上一個標籤之間的 commit。
+- 一般推到 `main` 只會建置，不會發布。
 
 ### 安裝到手機
 

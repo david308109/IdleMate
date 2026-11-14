@@ -3,7 +3,12 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # 推 v 開頭的標籤（例如 v0.2.0）時，建置並發布到公開的 IdleMate-releases
+    tags: ['v*']
   workflow_dispatch:
+
+env:
+  RELEASE_REPO: david308109/IdleMate-releases
 
 jobs:
   build:
@@ -19,6 +24,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
+
+      - name: Set version
+        run: |
+          # 版本號用建置次數，確保每次都比上一版大
+          echo "IDLEMATE_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "IDLEMATE_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "IDLEMATE_VERSION_NAME=0.0.${{ github.run_number }}-dev" >> "$GITHUB_ENV"
+          fi
 
       # 正式簽章：從加密的 Secrets 還原到暫存位置（不會進到程式碼或 artifact）
       - name: Restore release keystore
@@ -42,3 +57,28 @@ jobs:
         with:
           name: IdleMate-release-apk
           path: app/build/outputs/apk/release/*.apk
+
+      # 只有推標籤時才發布。RELEASES_TOKEN 是只能寫入 IdleMate-releases 的 fine-grained token
+      - name: Publish to IdleMate-releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          APK="IdleMate-${IDLEMATE_VERSION_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          # 更新說明：上一個標籤到這個標籤之間的 commit 標題
+          git fetch --tags --unshallow --quiet || true
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          {
+            echo "## 更新內容"
+            echo
+            git log --pretty='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | head -30
+            echo
+            echo "## 安裝"
+            echo
+            echo "下載 \`$APK\` 後在手機上點開安裝。第一次安裝請參考 [README](https://github.com/${RELEASE_REPO}#安裝時會看到的提示)。"
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" "$APK" \
+            --repo "$RELEASE_REPO" \
+            --title "IdleMate $IDLEMATE_VERSION_NAME" \
+            --notes-file notes.md
