@@ -165,6 +165,17 @@ class IdleAccessibilityService : AccessibilityService() {
         h.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
+    private val landscape get() =
+        resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    /** 橫屏：預設在右上角（從頂端往下算）；直屏：沿用原本的位置（相對螢幕中央）。 */
+    private fun handleY(): Int =
+        if (landscape) prefs.edgeOffsetYLand.takeIf { it >= 0 } ?: dp(24) else prefs.edgeOffsetY
+
+    private fun saveHandleY(y: Int) {
+        if (landscape) prefs.edgeOffsetYLand = y.coerceAtLeast(0) else prefs.edgeOffsetY = y
+    }
+
     private fun params(w: Int, h: Int, watchOutside: Boolean = false) = WindowManager.LayoutParams(
         w, h,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -172,38 +183,79 @@ class IdleAccessibilityService : AccessibilityService() {
             (if (watchOutside) WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH else 0),
         PixelFormat.TRANSLUCENT
     ).apply {
-        gravity = (if (left) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL
-        y = prefs.edgeOffsetY
+        gravity = (if (left) Gravity.START else Gravity.END) or
+            (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
+        y = handleY()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 轉向時，把手換到該方向記住的位置
+        if (instance != null) refreshHandle()
     }
 
     private fun showHandle() {
+        val thin = dp(5); val thick = dp(11)
         val bar = View(this).apply {
             background = GradientDrawable().apply {
-                cornerRadius = dp(3).toFloat(); setColor(0xB0546E7A.toInt())
+                cornerRadius = dp(4).toFloat(); setColor(0xB0546E7A.toInt())
             }
         }
         val onLeft = left
-        val touch = FrameLayout(this).apply {
-            addView(bar, FrameLayout.LayoutParams(dp(5), dp(96),
-                (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL))
-        }
+        val barLp = FrameLayout.LayoutParams(thin, dp(96),
+            (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL)
+        val touch = FrameLayout(this).apply { addView(bar, barLp) }
         val lp = params(dp(28), dp(120))
 
-        var downX = 0f; var downY = 0f; var startY = 0; var mode = 0 // 0 未定 1 橫滑 2 縱拖
+        fun setThick(on: Boolean) {
+            barLp.width = if (on) thick else thin
+            bar.layoutParams = barLp
+            (bar.background as GradientDrawable).setColor(if (on) 0xFF90A4AE.toInt() else 0xB0546E7A.toInt())
+        }
+
+        // 告訴系統：把手這一塊不要觸發「返回」手勢，避免滑出選單時同時返回上一頁
+        if (Build.VERSION.SDK_INT >= 29) {
+            touch.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                v.systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, v.width, v.height))
+            }
+        }
+
+        val slop = dp(8)
+        var downX = 0f; var downY = 0f; var startY = 0
+        var moving = false   // 長按 1 秒後進入移動模式
+        var moved = false    // 手指已經滑動（不算點一下）
+        var opened = false
+        val longPress = Runnable {
+            moving = true
+            setThick(true)
+            touch.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        }
         touch.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; startY = lp.y; mode = 0 }
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startY = lp.y
+                    moving = false; moved = false; opened = false
+                    handler.postDelayed(longPress, 1000)
+                }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (if (onLeft) e.rawX - downX else downX - e.rawX)
                     val dy = e.rawY - downY
-                    if (mode == 0 && (abs(dx) > dp(8) || abs(dy) > dp(8)))
-                        mode = if (abs(dx) >= abs(dy)) 1 else 2
-                    if (mode == 1 && dx > dp(24)) { openPanel(lp.y); mode = -1 }
-                    if (mode == 2) { lp.y = startY + dy.toInt(); runCatching { wm.updateViewLayout(touch, lp) } }
+                    if (moving) {
+                        lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
+                        runCatching { wm.updateViewLayout(touch, lp) }
+                    } else {
+                        if (abs(dx) > slop || abs(dy) > slop) {
+                            moved = true
+                            handler.removeCallbacks(longPress)  // 手指一動就不是長按
+                        }
+                        if (!opened && dx > dp(24) && abs(dx) >= abs(dy)) { opened = true; openPanel(lp.y) }
+                    }
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (mode == 0) openPanel(lp.y)           // 點一下也展開
-                    if (mode == 2) prefs.edgeOffsetY = lp.y  // 記住位置
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(longPress)
+                    if (moving) { saveHandleY(lp.y); setThick(false) }
+                    else if (!moved && !opened && e.actionMasked == MotionEvent.ACTION_UP) openPanel(lp.y)  // 點一下也展開
+                    moving = false
                 }
             }
             true

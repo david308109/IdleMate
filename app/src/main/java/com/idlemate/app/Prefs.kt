@@ -21,6 +21,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("edgeLeft", false)
         set(v) = sp.edit().putBoolean("edgeLeft", v).apply()
 
+    /** 橫屏時把手與螢幕頂端的距離（px）；-1 表示用預設（右上角） */
+    var edgeOffsetYLand: Int
+        get() = sp.getInt("edgeOffsetYLand", -1)
+        set(v) = sp.edit().putInt("edgeOffsetYLand", v).apply()
+
     /** 把手垂直偏移（px，相對螢幕中央） */
     var edgeOffsetY: Int
         get() = sp.getInt("edgeOffsetY", 0)
