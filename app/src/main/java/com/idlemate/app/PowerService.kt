@@ -195,7 +195,7 @@ class PowerService : IPowerService.Stub() {
     @Volatile private var fullLog: java.io.File? = null
     @Volatile private var fullState: java.io.File? = null
 
-    override fun startFullCapture(): String = synchronized(this) {
+    override fun startFullCapture(): String {
         stopFullInternal()
         try {
             val dir = java.io.File("/storage/emulated/0/Download")
@@ -204,7 +204,11 @@ class PowerService : IPowerService.Stub() {
             val logFile = java.io.File(dir, "IdleMate_log_$stamp.txt")
             val stateFile = java.io.File(dir, "IdleMate_state_$stamp.txt")
             fullLog = logFile; fullState = stateFile
-            runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-b", "all", "-c")).waitFor() }
+            // 清除舊日誌最多等 3 秒（有些手機會卡住）
+            runCatching {
+                val c = Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events,crash", "-c"))
+                if (!c.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) c.destroy()
+            }
             fullProc = Runtime.getRuntime().exec(arrayOf(
                 "logcat", "-b", "main,system,events,crash", "-v", "threadtime", "-f", logFile.absolutePath
             ))
@@ -242,7 +246,7 @@ class PowerService : IPowerService.Stub() {
         fullProc = null
     }
 
-    override fun stopFullCapture(): String = synchronized(this) {
+    override fun stopFullCapture(): String {
         stopFullInternal()
         try { Thread.sleep(500) } catch (_: Throwable) {}
         val l = fullLog; val s = fullState

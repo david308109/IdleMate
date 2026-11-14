@@ -220,7 +220,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         // ── 診斷：鎖屏時是誰停了 YouTube ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("診斷 v8：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
+                Text("診斷 v9：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
                 Text(
                     listOf(
                         "1. 按「開始擷取」",
