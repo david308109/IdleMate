@@ -123,12 +123,12 @@ class PowerService : IPowerService.Stub() {
             runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-c")).waitFor() }
             val p = Runtime.getRuntime().exec(arrayOf("logcat", "-b", "main,system,events", "-v", "time"))
             logProc = p
-            val keys = listOf("youtube", "mediasession", "audiofocus", "screen_off", "goingtosleep", "wm_set_keyguard_shown")
+            val keys = listOf("mediasession", "ytpl.", "audiomanager", "audiofocus", "screen_off", "goingtosleep", "wm_set_keyguard_shown", "wakefulness", "sleep")
             Thread {
                 try {
                     p.inputStream.bufferedReader().forEachLine { l ->
                         val low = l.lowercase()
-                        if (keys.any { low.contains(it) } && logLines.size < 300) logLines.add(l.take(200))
+                        if (keys.any { low.contains(it) } && logLines.size < 500) logLines.add(l.take(260))
                     }
                 } catch (_: Throwable) {}
             }.apply { isDaemon = true; start() }
