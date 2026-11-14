@@ -18,4 +18,5 @@ interface IPowerService {
     String startTouchWatch() = 4;
     long touchStamp() = 5;
     void stopTouchWatch() = 6;
+    String touchInfo() = 7;
 }

@@ -62,7 +62,7 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power").version(6)
+            .daemon(false).processNameSuffix("power").version(7)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
     }
 
@@ -86,9 +86,13 @@ object ShizukuHelper {
         }
     }
 
-    fun stopTouchWatch() {
+    fun stopTouchWatch(done: ((String) -> Unit)? = null) {
         val s = service ?: return
-        executor.execute { runCatching { s.stopTouchWatch() } }
+        executor.execute {
+            val info = runCatching { s.touchInfo() }.getOrDefault("")
+            runCatching { s.stopTouchWatch() }
+            done?.invoke(info)
+        }
     }
 
     /** 最近一次手指按下的時間（毫秒）；失敗回 0 */

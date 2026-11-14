@@ -336,7 +336,7 @@ class EdgeHandleService : Service() {
         sessionActive = false
         handler.removeCallbacksAndMessages(null)
         touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
-        ShizukuHelper.stopTouchWatch()
+        ShizukuHelper.stopTouchWatch { DebugLog.add(this, "觸控監聽結束：$it") }
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null

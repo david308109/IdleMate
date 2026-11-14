@@ -55,34 +55,55 @@ class PowerService : IPowerService.Stub() {
         "已呼叫 lockNow（鎖屏，不睡眠）"
     } catch (t: Throwable) { "lockNow 失敗：${describe(t)}" }
 
-    @Volatile private var touchProc: Process? = null
+    @Volatile private var touchGen = 0
     @Volatile private var lastTouch = 0L
+    @Volatile private var evCount = 0
 
+    // 直接讀 /dev/input/event*（避免 getevent 輸出被管線緩衝而延遲）
     override fun startTouchWatch(): String = synchronized(this) {
-        stopTouchWatch()
-        lastTouch = 0L
-        try {
-            val p = Runtime.getRuntime().exec(arrayOf("getevent", "-l"))
-            touchProc = p
-            Thread {
-                try {
-                    p.inputStream.bufferedReader().forEachLine { l ->
-                        val down = (l.contains("BTN_TOUCH") && l.contains("DOWN")) ||
-                            (l.contains("ABS_MT_TRACKING_ID") && !l.trim().endsWith("ffffffff"))
-                        if (down) lastTouch = System.currentTimeMillis()
-                    }
-                } catch (_: Throwable) {}
-            }.apply { isDaemon = true; start() }
-            "已開始監聽觸控"
-        } catch (t: Throwable) { "監聽觸控失敗：${describe(t)}" }
+        val gen = ++touchGen
+        lastTouch = 0L; evCount = 0
+        val files = java.io.File("/dev/input").listFiles { f -> f.name.startsWith("event") }
+            ?: return "無法列出 /dev/input"
+        var opened = 0
+        val errs = StringBuilder()
+        for (f in files) {
+            try {
+                val ins = java.io.FileInputStream(f)
+                opened++
+                Thread {
+                    val buf = ByteArray(24 * 16)
+                    try {
+                        while (gen == touchGen) {
+                            val n = ins.read(buf)
+                            if (n <= 0) break
+                            val bb = java.nio.ByteBuffer.wrap(buf, 0, n).order(java.nio.ByteOrder.nativeOrder())
+                            var o = 0
+                            while (o + 24 <= n) {
+                                val type = bb.getShort(o + 16).toInt() and 0xffff
+                                val code = bb.getShort(o + 18).toInt() and 0xffff
+                                val value = bb.getInt(o + 20)
+                                evCount++
+                                if ((type == 1 && code == 0x14a && value == 1) ||
+                                    (type == 3 && code == 0x39 && value != -1)) {
+                                    if (gen == touchGen) lastTouch = System.currentTimeMillis()
+                                }
+                                o += 24
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                    runCatching { ins.close() }
+                }.apply { isDaemon = true; start() }
+            } catch (t: Throwable) { errs.append(f.name).append(':').append(t.javaClass.simpleName).append(' ') }
+        }
+        "已監聽 $opened/${files.size} 個輸入裝置 $errs"
     }
+
+    override fun touchInfo(): String = "收到輸入事件 $evCount 筆"
+
+    override fun stopTouchWatch() { touchGen++ }
 
     override fun touchStamp(): Long = lastTouch
-
-    override fun stopTouchWatch() {
-        touchProc?.let { runCatching { it.destroy() } }
-        touchProc = null
-    }
 
     private fun describe(t: Throwable): String {
         val c = (t as? java.lang.reflect.InvocationTargetException)?.cause ?: t
