@@ -197,7 +197,7 @@ class PowerService : IPowerService.Stub() {
 
     override fun startFullCapture(): String {
         stopFullInternal()
-        try {
+        return try {
             val dir = java.io.File("/storage/emulated/0/Download")
             dir.mkdirs()
             val stamp = java.text.SimpleDateFormat("MMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
@@ -251,7 +251,7 @@ class PowerService : IPowerService.Stub() {
         try { Thread.sleep(500) } catch (_: Throwable) {}
         val l = fullLog; val s = fullState
         fun info(f: java.io.File?) = if (f == null) "（無）" else f.absolutePath + "（" + (if (f.exists()) "${f.length() / 1024} KB" else "不存在") + "）"
-        "已結束完整存檔（" + hhmmss() + "）\n日誌：" + info(l) + "\n狀態：" + info(s) +
+        return "已結束完整存檔（" + hhmmss() + "）\n日誌：" + info(l) + "\n狀態：" + info(s) +
             "\n請把這兩個檔案從手機的「下載」資料夾傳到電腦。"
     }
 
