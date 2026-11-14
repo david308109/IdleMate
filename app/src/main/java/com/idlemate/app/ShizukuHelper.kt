@@ -68,7 +68,7 @@ object ShizukuHelper {
         if (binding) return
         binding = true
         val args = Shizuku.UserServiceArgs(ComponentName(ctx.packageName, PowerService::class.java.name))
-            .daemon(false).processNameSuffix("power3").version(17)
+            .daemon(false).processNameSuffix("power3").version(18)
         runCatching { Shizuku.bindUserService(args, conn) }.onFailure { binding = false }
         // 8 秒內沒連上就放棄這次，下次呼叫會重新連線（避免永遠卡在「連線中」）
         main.postDelayed({ if (service == null && binding) { binding = false; pending.clear() } }, 8000)
@@ -91,6 +91,13 @@ object ShizukuHelper {
                 val r = runCatching { op(svc) }.getOrElse { "呼叫失敗：$it" }
                 if (!finished.getAndSet(true)) done(r)
             }
+        }
+    }
+
+    fun grantSecureSettings(ctx: Context, done: (String) -> Unit) {
+        val pkg = ctx.packageName
+        withService(ctx.applicationContext) { svc ->
+            executor.execute { done(runCatching { svc.grantSecureSettings(pkg) }.getOrElse { "呼叫失敗：$it" }) }
         }
     }
 

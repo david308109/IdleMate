@@ -88,7 +88,7 @@ class PowerService : IPowerService.Stub() {
                                 if (type != 0 && evLog.size < 40) evLog.add("${f.name}:t$type/c$code/v$value")
                                 if ((type == 1 && code == 0x14a && value == 1) ||
                                     (type == 3 && code == 0x39 && value != -1) ||
-                                    (type == 1 && (code == 114 || code == 115) && value == 1)) {
+                                    (type == 1 && (code == 114 || code == 115 || code == 116) && value == 1)) {
                                     if (gen == touchGen) lastTouch = System.currentTimeMillis()
                                 }
                                 o += 24
@@ -253,6 +253,12 @@ class PowerService : IPowerService.Stub() {
         fun info(f: java.io.File?) = if (f == null) "（無）" else f.absolutePath + "（" + (if (f.exists()) "${f.length() / 1024} KB" else "不存在") + "）"
         return "已結束完整存檔（" + hhmmss() + "）\n日誌：" + info(l) + "\n狀態：" + info(s) +
             "\n請把這兩個檔案從手機的「下載」資料夾傳到電腦。"
+    }
+
+    /** 讓 IdleMate 自己能改 Global 設定（用來暫時關掉電源鍵的睡眠功能，並能在重開機後自行還原）。 */
+    override fun grantSecureSettings(pkg: String): String {
+        val r = runCmd("pm", "grant", pkg, "android.permission.WRITE_SECURE_SETTINGS")
+        return if (r.isBlank()) "已授予修改系統設定權限" else "授權結果：$r"
     }
 
     override fun probeTouch(): String {

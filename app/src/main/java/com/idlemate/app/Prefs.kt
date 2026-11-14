@@ -21,6 +21,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("edgeLeft", false)
         set(v) = sp.edit().putBoolean("edgeLeft", v).apply()
 
+    /** 是否已暫時改過電源鍵行為（需要還原） */
+    var pbspSaved: Boolean
+        get() = sp.getBoolean("pbspSaved", false)
+        set(v) = sp.edit().putBoolean("pbspSaved", v).commit().let { }
+
+    /** 電源鍵短按設定的原始值（null 表示原本沒有設定） */
+    var pbspOrig: String?
+        get() = sp.getString("pbspOrig", null)
+        set(v) = sp.edit().putString("pbspOrig", v).commit().let { }
+
     /** 把手垂直偏移（px，相對螢幕中央） */
     var edgeOffsetY: Int
         get() = sp.getInt("edgeOffsetY", 0)

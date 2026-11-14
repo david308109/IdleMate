@@ -96,8 +96,14 @@ class EdgeHandleService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         if (!OemHelper.canOverlay(this)) { stopSelf(); return START_NOT_STICKY }
+        // 上次黑屏若沒正常結束，先把電源鍵設定還原
+        if (!sessionActive) PowerKeyGuard.restore(this)?.let { DebugLog.add(this, it) }
         // 暖機：先連上 Shizuku 服務並載入系統函式庫，讓第一次關面板不會卡
-        if (ShizukuHelper.granted()) ShizukuHelper.setDisplayPower(this, on = true) { }
+        if (ShizukuHelper.granted()) {
+            ShizukuHelper.setDisplayPower(this, on = true) { }
+            // 取得「修改系統設定」權限（只需一次），之後 App 自己就能改／還原電源鍵行為
+            if (!PowerKeyGuard.canWrite(this)) ShizukuHelper.grantSecureSettings(this) { DebugLog.add(this, it) }
+        }
         if (handle == null) {
             wm = getSystemService(WINDOW_SERVICE) as WindowManager
             prefs = Prefs(this)
@@ -271,9 +277,43 @@ class EdgeHandleService : Service() {
         handler.postDelayed({
             if (!sessionActive) return@postDelayed
             ShizukuHelper.setDisplayPower(this, on = false) { DebugLog.add(this, "關閉面板：$it") }
-            addTouchWatcher()
+            blockPowerKey()
+            startKeyWatch()
             startPickUpWatch()
         }, 250)
+    }
+
+    /** 暫時讓電源鍵「按了不睡眠」，這樣按電源鍵會直接回到原本的 App，不會鎖屏、不會斷音。 */
+    private fun blockPowerKey() {
+        fun doBlock() {
+            val ok = PowerKeyGuard.block(this)
+            DebugLog.add(this, if (ok) "電源鍵：暫時不睡眠" else "電源鍵：無法改設定，按電源鍵會進鎖屏")
+        }
+        if (PowerKeyGuard.canWrite(this)) doBlock()
+        else ShizukuHelper.grantSecureSettings(this) { r ->
+            handler.post { DebugLog.add(this, r); if (sessionActive) doBlock() }
+        }
+    }
+
+    /** 監聽實體按鍵（電源鍵、音量鍵）：按下就恢復面板，直接回到原本的 App。 */
+    private fun startKeyWatch() {
+        val startAt = System.currentTimeMillis()
+        ShizukuHelper.startTouchWatch(this) { DebugLog.add(this, "按鍵監聽：$it") }
+        val tick = object : Runnable {
+            override fun run() {
+                if (!sessionActive) return
+                ShizukuHelper.touchStamp { stamp ->
+                    handler.post {
+                        if (sessionActive && stamp > startAt + 300) {
+                            DebugLog.add(this@EdgeHandleService, "偵測到按鍵 → 恢復面板，直接回到 App")
+                            endSession(restorePanel = true)
+                        }
+                    }
+                }
+                handler.postDelayed(this, 120)
+            }
+        }
+        handler.postDelayed(tick, 120)
     }
 
     private var pickUpListener: TriggerEventListener? = null
@@ -289,8 +329,8 @@ class EdgeHandleService : Service() {
             override fun onTrigger(event: TriggerEvent?) {
                 handler.post {
                     if (sessionActive) {
-                        DebugLog.add(this@EdgeHandleService, "偵測到拿起手機 → 恢復面板並顯示鎖屏")
-                        endSession(restorePanel = true, lockAfterRestore = true)
+                        DebugLog.add(this@EdgeHandleService, "偵測到拿起手機 → 恢復面板，直接回到 App")
+                        endSession(restorePanel = true)
                     }
                 }
             }
@@ -357,6 +397,11 @@ class EdgeHandleService : Service() {
         handler.removeCallbacksAndMessages(null)
         touchWatcher?.let { runCatching { wm.removeView(it) } }; touchWatcher = null
         stopPickUpWatch()
+        ShizukuHelper.stopTouchWatch()
+        // 電源鍵的「短按」在放開時才生效：等 1.5 秒（確定已放開）再還原，避免放開那一下又讓手機睡眠
+        handler.postDelayed({
+            if (!sessionActive) PowerKeyGuard.restore(this)?.let { DebugLog.add(this, it) }
+        }, 1500)
         if (!keepReceiver) runCatching { unregisterReceiver(screenOffReceiver) }
         wakeLock?.takeIf { it.isHeld }?.release(); wakeLock = null
         wifiLock?.takeIf { it.isHeld }?.release(); wifiLock = null

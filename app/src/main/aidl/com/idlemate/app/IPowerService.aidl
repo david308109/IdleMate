@@ -33,4 +33,7 @@ interface IPowerService {
     // 診斷：完整日誌存檔到「下載」資料夾（含每 2 秒的系統狀態快照）
     String startFullCapture() = 12;
     String stopFullCapture() = 13;
+
+    // 以 shell 身分授予 WRITE_SECURE_SETTINGS（讓 App 能暫時改電源鍵行為）
+    String grantSecureSettings(String pkg) = 14;
 }
