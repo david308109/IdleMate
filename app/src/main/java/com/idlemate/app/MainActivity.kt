@@ -221,10 +221,13 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("診斷：鎖屏時誰停了 YouTube", style = MaterialTheme.typography.titleMedium)
-                Text("1. 按「開始擷取」
-2. 開 YouTube 播放影片
-3. 按電源鍵鎖屏，等 5 秒，再按電源鍵亮屏
-4. 回到 IdleMate，按「結束並顯示」",
+                Text(
+                    listOf(
+                        "1. 按「開始擷取」",
+                        "2. 開 YouTube 播放影片",
+                        "3. 按電源鍵鎖屏，等 5 秒，再按電源鍵亮屏",
+                        "4. 回到 IdleMate，按「結束並顯示」"
+                    ).joinToString(System.lineSeparator()),
                     style = MaterialTheme.typography.bodySmall)
                 var diag by remember { mutableStateOf("") }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

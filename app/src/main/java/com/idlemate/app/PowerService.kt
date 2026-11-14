@@ -136,8 +136,7 @@ class PowerService : IPowerService.Stub() {
         runCatching { logProc?.destroy() }
         logProc = null
         val yt = synchronized(logLines) { logLines.toList() }
-        if (yt.isEmpty()) "（沒有擷取到相關日誌）" else yt.joinToString("
-")
+        if (yt.isEmpty()) "（沒有擷取到相關日誌）" else yt.joinToString(System.lineSeparator())
     }
 
     private fun describe(t: Throwable): String {
