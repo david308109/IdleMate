@@ -47,37 +47,11 @@ class MainActivity : ComponentActivity() {
     // 回到畫面時重新讀取授權與開關狀態
     private var refreshTick by mutableStateOf(0)
 
-    // 一鍵設定：依序處理缺少的授權，每一步只嘗試一次，避免使用者拒絕時無限循環
-    private var setupRunning = false
-    private val attempted = mutableSetOf<String>()
-    private val notifLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { continueSetup() }
-
+    // 唯一需要的設定：協助工具
     private fun startSetup() {
-        attempted.clear(); setupRunning = true; continueSetup()
-    }
-
-    private fun continueSetup() {
-        if (!setupRunning) return
-        fun once(key: String) = attempted.add(key)
-        when {
-            !OemHelper.canOverlay(this) && once("overlay") -> OemHelper.openOverlaySettings(this)
-            !IdleAccessibilityService.isEnabled(this) && once("a11y") -> IdleAccessibilityService.openSettings(this)
-            !OemHelper.canTurnScreenOn(this) && once("screenon") -> OemHelper.openTurnScreenOnSettings(this)
-            !OemHelper.isIgnoringBatteryOptimizations(this) && once("battery") ->
-                OemHelper.requestIgnoreBatteryOptimizations(this)
-            Build.VERSION.SDK_INT >= 33 &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED && once("notif") ->
-                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            else -> {
-                setupRunning = false
-                Prefs(this).setupDone = true
-                if (OemHelper.canOverlay(this)) {
-                    startEdge(this)
-                    Toast.makeText(this, "設定完成，從螢幕邊緣滑出選單即可使用", Toast.LENGTH_LONG).show()
-                }
-            }
+        if (!IdleAccessibilityService.isEnabled(this)) {
+            Toast.makeText(this, "在清單中找到「IdleMate」並開啟", Toast.LENGTH_LONG).show()
+            IdleAccessibilityService.openSettings(this)
         }
         refreshTick++
     }
@@ -89,21 +63,15 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize()) { Home(refreshTick, ::startSetup) }
             }
         }
-        // 第一次打開自動進入一鍵設定
-        if (!Prefs(this).setupDone) startSetup()
+        // 第一次打開自動帶到設定
+        if (!Prefs(this).setupDone) { Prefs(this).setupDone = true; startSetup() }
     }
 
     override fun onResume() {
         super.onResume()
-        if (setupRunning) continueSetup()
-        // 打開 App 時，若已授權且啟用，就讓邊緣把手出現
-        else if (Prefs(this).edgeOn && OemHelper.canOverlay(this)) startEdge(this)
         refreshTick++
     }
 }
-
-private fun startEdge(ctx: Context) =
-    ContextCompat.startForegroundService(ctx, Intent(ctx, EdgeHandleService::class.java))
 
 private fun Context.appLabel(pkg: String): String = runCatching {
     packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
@@ -118,11 +86,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
     var edgeOn by remember(refreshTick) { mutableStateOf(prefs.edgeOn) }
     var edgeLeft by remember(refreshTick) { mutableStateOf(prefs.edgeLeft) }
 
-    val overlayOk = OemHelper.canOverlay(ctx)
-    val batteryOk = OemHelper.isIgnoringBatteryOptimizations(ctx)
     val a11yOk = IdleAccessibilityService.isEnabled(ctx)
-    val screenOnOk = OemHelper.canTurnScreenOn(ctx)
-    val allReady = overlayOk && a11yOk && screenOnOk && batteryOk
     var showKeepPicker by remember { mutableStateOf(false) }
     var showMediaPicker by remember { mutableStateOf(false) }
     var pickerTick by remember { mutableStateOf(0) }
@@ -133,18 +97,27 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
     ) {
         Text("IdleMate", style = MaterialTheme.typography.headlineMedium)
 
-        // ── 一鍵設定（只需做一次） ──
-        if (!allReady) Card(Modifier.fillMaxWidth()) {
+        // ── 設定（只需一次） ──
+        if (!a11yOk) Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("首次設定（只需一次）", style = MaterialTheme.typography.titleMedium)
-                Text("${if (overlayOk) "✅" else "⬜"} 顯示在其他應用程式上層（邊緣把手）")
-                Text("${if (a11yOk) "✅" else "⬜"} 協助工具：開啟「IdleMate」（全黑畫面、知道目前的 App、鎖定螢幕）")
-                Text("${if (screenOnOk) "✅" else "⬜"} 點亮螢幕（鎖定後自動亮屏，直接看到鎖屏）")
-                Text("${if (batteryOk) "✅" else "⬜"} 允許背景運行")
-                Button(onClick = onSetup) { Text("一鍵完成設定") }
-                Text("系統規定這些授權必須由你親自按同意，App 無法代按。開啟協助工具時系統會顯示「可讀取螢幕內容」等說明，" +
-                    "IdleMate 實際上不讀取任何畫面內容，只用來畫全黑畫面、知道目前的 App 與鎖定螢幕，也沒有網路權限。",
-                    style = MaterialTheme.typography.bodySmall)
+                Text("設定（只需一次）", style = MaterialTheme.typography.titleMedium)
+                Text("在「協助工具」裡開啟「IdleMate」，就完成了。")
+                Button(onClick = onSetup) { Text("前往開啟") }
+                Text(
+                    "開啟時系統會顯示「可讀取螢幕內容」等說明。IdleMate 實際上不讀取任何畫面內容，" +
+                        "只用來顯示邊緣把手、全黑畫面、知道目前的 App 與鎖定螢幕，也沒有網路權限。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "如果開關是灰色、按不下去：到 設定 → 應用程式 → IdleMate → 右上角「⋮」→「允許受限制的設定」，再回來開啟。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(onClick = {
+                    runCatching {
+                        ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }) { Text("開啟 IdleMate 的應用程式資訊") }
             }
         }
 
@@ -207,22 +180,15 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                     Text("邊緣把手", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Switch(checked = edgeOn, onCheckedChange = {
                         edgeOn = it; prefs.edgeOn = it
-                        if (!it) ctx.stopService(Intent(ctx, EdgeHandleService::class.java))
-                        else if (overlayOk) startEdge(ctx) else OemHelper.openOverlaySettings(ctx)
+                        IdleAccessibilityService.instance?.refreshHandle()
                     })
                 }
                 Text("上下拖曳把手可調整位置。", style = MaterialTheme.typography.bodySmall)
-                if (!overlayOk) {
-                    Text("⚠️ 需要「顯示在其他應用程式上層」權限")
-                    Button(onClick = { OemHelper.openOverlaySettings(ctx) }) { Text("前往授權") }
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("放在左邊", modifier = Modifier.weight(1f))
                     Switch(checked = edgeLeft, onCheckedChange = {
                         edgeLeft = it; prefs.edgeLeft = it
-                        if (edgeOn && overlayOk) {
-                            ctx.stopService(Intent(ctx, EdgeHandleService::class.java)); startEdge(ctx)
-                        }
+                        IdleAccessibilityService.instance?.refreshHandle()
                     })
                 }
             }

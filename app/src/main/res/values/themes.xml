@@ -1,3 +1,9 @@
 <resources>
     <style name="Theme.IdleMate" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+    <!-- 透明、無動畫：只用來點亮螢幕的小畫面 -->
+    <style name="Theme.IdleMate.Wake" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowNoDisplay">false</item>
+    </style>
 </resources>

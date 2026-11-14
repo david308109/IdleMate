@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Android 14 起：鎖定後自動點亮螢幕（使用者在「特殊應用程式存取權 → 點亮螢幕」開啟） -->
+    <!-- 選用：若使用者另外開了「點亮螢幕」，亮屏會更穩；沒開也能用（改用透明亮屏畫面） -->
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <queries>
         <intent>
@@ -31,17 +26,18 @@
             </intent-filter>
         </activity>
 
-        <!-- 螢幕邊緣把手（懸浮視窗） -->
-        <service
-            android:name=".EdgeHandleService"
+        <!-- 鎖定後把螢幕點亮的透明小畫面 -->
+        <activity
+            android:name=".WakeActivity"
+            android:excludeFromRecents="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Shows an edge overlay handle that opens one-tap screen-off actions" />
-        </service>
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.IdleMate.Wake"
+            android:turnScreenOn="true" />
 
-        <!-- 協助工具：偵測前景 App、畫全黑遮罩、鎖定螢幕（不讀取畫面內容） -->
+        <!-- 協助工具：邊緣把手、全黑遮罩、鎖定螢幕、偵測前景 App（不讀取畫面內容） -->
         <service
             android:name=".IdleAccessibilityService"
             android:exported="true"
