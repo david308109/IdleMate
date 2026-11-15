@@ -366,9 +366,11 @@ class IdleAccessibilityService : AccessibilityService() {
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
             if (Build.VERSION.SDK_INT >= 30) {
-                // 用實體螢幕的完整大小，連狀態列與導覽列一起蓋住
+                // 用實體螢幕的完整大小，連狀態列與導覽列一起蓋住。
+                // 用「長邊 × 長邊」的正方形：轉向後不論直橫都能完整蓋住（超出部分會被裁掉）
                 val b = wm.maximumWindowMetrics.bounds
-                width = b.width(); height = b.height()
+                val side = maxOf(b.width(), b.height())
+                width = side; height = side
                 fitInsetsTypes = 0
             }
         }
