@@ -4,8 +4,7 @@
 
 An Android utility that makes the screen *look* off while your app or video keeps running.
 
-- **🔋 Idle with screen off**: the screen goes black while a game keeps running (AFK farming).
-- **🎧 Listen in standby**: the screen goes black while YouTube or another app keeps playing audio.
+**🌙 Screen-off mode**: one tap turns the screen black while the app keeps running, so a game keeps idling (AFK farming) and YouTube keeps playing audio.
 
 No root, no Shizuku.
 
@@ -23,9 +22,9 @@ Get the latest `IdleMate-x.y.z.apk` from [Releases](https://github.com/david3081
 
 ## How to use
 
-1. Open one of your chosen apps (default: all games for idling, YouTube for listening). A thin line (the handle) appears at the edge of the screen.
+1. Open one of your chosen apps (default: all games and YouTube). A thin line (the handle) appears at the edge of the screen.
 2. **Swipe inward** from the handle to open the menu.
-3. Tap a feature. The screen turns black right away, and touches are blocked so nothing gets tapped by accident.
+3. Tap **🌙 Screen-off mode**. The screen turns black right away, and touches are blocked so nothing gets tapped by accident.
 4. To come back, **double-tap the screen** or **press the power button**. You go straight to the lock screen; just unlock.
 
 ### The handle
@@ -60,13 +59,17 @@ If it was installed from a file, IdleMate detects the install source and adds th
 - Video stops once the phone is locked; this is expected. Free YouTube stops playback by itself when its screen is paused.
 - While black, the panel is actually on (just showing black), so it saves less power than a truly off screen. On OLED screens, black pixels use almost no power.
 
+### Why one mode instead of two
+
+Xiaomi offers "screen-off idle" for games and "background listening" for videos as two features, but logs show both use the same system mechanism (`Go to sleep and hold on - <package>`): the system really sleeps, but the chosen app is kept from being paused. IdleMate likewise uses one mechanism for both cases, so it offers a single mode. Xiaomi's approach needs system privileges, which is why IdleMate uses a black overlay instead.
+
 ## Project structure
 
 ```
 app/src/main/java/com/idlemate/app/
 ├── IdleAccessibilityService.kt  # Core: handle, menu, black cover, lock, wake, foreground detection
 ├── MainActivity.kt              # Settings screen and first-run setup guide (Compose)
-├── Prefs.kt                     # Preferences (handle position, apps for each feature)
+├── Prefs.kt                     # Preferences (handle position, chosen apps)
 ├── OemHelper.kt                 # Permission checks, vendor settings pages, install source
 └── DebugLog.kt                  # In-app diagnostic log
 ```

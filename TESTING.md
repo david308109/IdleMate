@@ -55,8 +55,9 @@ Note: the app itself cannot read this state (the system throws a SecurityExcepti
 - [ ] A single tap on the handle does not open the menu.
 - [ ] Long-press the handle for about 0.5 s: the line gets thicker (no vibration) and can then be dragged up or down.
 - [ ] In landscape, the handle defaults to the top-right.
-- [ ] 🎧 Listen in standby: the screen goes black, audio keeps playing, taps are blocked.
-- [ ] 🔋 Idle with screen off: the screen goes black in a game and the game keeps running.
+- [ ] 🌙 Screen-off mode in YouTube: the screen goes black, audio keeps playing, taps are blocked.
+- [ ] 🌙 Screen-off mode in a game: the screen goes black and the game keeps running.
+- [ ] The menu shows one item, **🌙 熄屏運行**, plus **收起**.
 - [ ] Rotate the phone while black (portrait ↔ landscape): the cover still fills the whole screen.
 - [ ] While black, double-tap the screen or press the power button: you go straight to the lock screen.
 

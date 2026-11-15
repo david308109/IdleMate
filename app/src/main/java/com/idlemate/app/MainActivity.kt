@@ -185,8 +185,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
     var edgeLeft by remember(refreshTick) { mutableStateOf(prefs.edgeLeft) }
 
     val a11yOk = IdleAccessibilityService.isEnabled(ctx)
-    var showKeepPicker by remember { mutableStateOf(false) }
-    var showMediaPicker by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
     var pickerTick by remember { mutableStateOf(0) }
 
     Column(
@@ -229,39 +228,33 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("怎麼用", style = MaterialTheme.typography.titleMedium)
-                Text("1. 打開你指定的 App（預設：遊戲用掛機、YouTube 用待機聽劇），螢幕邊緣會出現一條細線。")
-                Text("2. 從細線往內滑，展開選單，只會列出適用於這個 App 的功能。")
-                Text("3. 點「🔋 螢幕關閉掛機」或「🎧 待機聽劇」，畫面立刻全黑，App 與影片照常運行。")
+                Text("1. 打開你指定的 App（預設：所有遊戲與 YouTube），螢幕邊緣會出現一條細線。")
+                Text("2. 從細線往內滑，展開選單。")
+                Text("3. 點「🌙 熄屏運行」，畫面立刻全黑，遊戲與影片照常運行。")
                 Text("4. 要回來時，在螢幕上點兩下，或按一次電源鍵，就會直接看到鎖屏畫面，解鎖即可。")
                 Text(
-                    "兩個按鈕都是「點一下就執行」，不用開關。全黑期間系統沒有睡眠，所以 App 與影片照常運行；" +
+                    "按一下就執行，不用開關。全黑期間系統沒有睡眠，所以 App 與影片照常運行；" +
                         "點擊會被擋下，不會誤觸（點兩下除外）。鎖屏後影片會停，這是正常的。",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
 
-        // ── 各功能出現在哪些 App ──
+        // ── 熄屏運行出現在哪些 App ──
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("🔋 螢幕關閉掛機", style = MaterialTheme.typography.titleMedium)
-                val keep = remember(pickerTick) { prefs.keepApps }
+                Text("🌙 熄屏運行", style = MaterialTheme.typography.titleMedium)
+                val apps = remember(pickerTick) { prefs.apps }
+                val legacy = remember(pickerTick) { prefs.usingLegacyApps }
                 Text(
-                    if (keep == null) "出現在：所有遊戲（預設）" else "出現在：已選的 ${keep.size} 個 App",
+                    when {
+                        apps != null -> "出現在：已選的 ${apps.size} 個 App"
+                        legacy -> "出現在：沿用先前「掛機」與「聽劇」的選擇"
+                        else -> "出現在：所有遊戲與 YouTube（預設）"
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
-                OutlinedButton(onClick = { showKeepPicker = true }) { Text("選擇 App") }
-            }
-        }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("🎧 待機聽劇", style = MaterialTheme.typography.titleMedium)
-                val media = remember(pickerTick) { prefs.mediaApps }
-                Text(
-                    if (media == null) "出現在：YouTube（預設）" else "出現在：已選的 ${media.size} 個 App",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedButton(onClick = { showMediaPicker = true }) { Text("選擇 App") }
+                OutlinedButton(onClick = { showPicker = true }) { Text("選擇 App") }
             }
         }
 
@@ -313,22 +306,13 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
         }
     }
 
-    if (showKeepPicker) {
+    if (showPicker) {
         AppPickerDialog(
-            title = "🔋 螢幕關閉掛機：在哪些 App 出現",
-            isChecked = { prefs.appliesKeep(it) },
-            onSave = { prefs.keepApps = it; pickerTick++; showKeepPicker = false },
-            onReset = { prefs.keepApps = null; pickerTick++; showKeepPicker = false },
-            onDismiss = { showKeepPicker = false }
-        )
-    }
-    if (showMediaPicker) {
-        AppPickerDialog(
-            title = "🎧 待機聽劇：在哪些 App 出現",
-            isChecked = { prefs.appliesMedia(it) },
-            onSave = { prefs.mediaApps = it; pickerTick++; showMediaPicker = false },
-            onReset = { prefs.mediaApps = null; pickerTick++; showMediaPicker = false },
-            onDismiss = { showMediaPicker = false }
+            title = "🌙 熄屏運行：在哪些 App 出現",
+            isChecked = { prefs.applies(it) },
+            onSave = { prefs.apps = it; pickerTick++; showPicker = false },
+            onReset = { prefs.apps = null; pickerTick++; showPicker = false },
+            onDismiss = { showPicker = false }
         )
     }
 }

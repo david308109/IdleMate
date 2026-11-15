@@ -75,8 +75,7 @@ class IdleAccessibilityService : AccessibilityService() {
     private var panel: View? = null
     private var cover: View? = null
     private var sessionActive = false
-    private var showKeep = false
-    private var showMedia = false
+    private var applies = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private val left get() = prefs.edgeLeft
@@ -173,11 +172,10 @@ class IdleAccessibilityService : AccessibilityService() {
 
     private fun updateHandle() {
         val h = handle ?: return
-        showKeep = prefs.appliesKeep(foregroundPkg)
-        showMedia = prefs.appliesMedia(foregroundPkg)
+        applies = prefs.applies(foregroundPkg)
         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        val visible = prefs.edgeOn && (showKeep || showMedia) && panel == null && !sessionActive &&
+        val visible = prefs.edgeOn && applies && panel == null && !sessionActive &&
             pm.isInteractive && !km.isKeyguardLocked
         h.visibility = if (visible) View.VISIBLE else View.GONE
     }
@@ -298,9 +296,7 @@ class IdleAccessibilityService : AccessibilityService() {
             }
             setPadding(0, dp(6), 0, dp(6))
         }
-        // 只列出適用於目前 App 的功能
-        if (showKeep) box.addView(item("🔋 螢幕關閉掛機") { startSession() })
-        if (showMedia) box.addView(item("🎧 待機聽劇") { startSession() })
+        box.addView(item("🌙 熄屏運行") { startSession() })
         box.addView(item("收起") { closePanel() }.apply { setTextColor(0xFF90A4AE.toInt()) })
         box.setOnTouchListener { _, e ->
             if (e.action == MotionEvent.ACTION_OUTSIDE) closePanel(); false

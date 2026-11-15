@@ -31,30 +31,32 @@ class Prefs(context: Context) {
         get() = sp.getInt("edgeOffsetY", 0)
         set(v) = sp.edit().putInt("edgeOffsetY", v).apply()
 
-    /** 「螢幕關閉掛機」要出現的 App；null 表示使用預設（所有遊戲） */
-    var keepApps: Set<String>?
-        get() = sp.getStringSet("keepApps", null)?.toSet()
-        set(v) = putSet("keepApps", v)
-
-    /** 「待機聽劇」要出現的 App；null 表示使用預設（YouTube） */
-    var mediaApps: Set<String>?
-        get() = sp.getStringSet("mediaApps", null)?.toSet()
-        set(v) = putSet("mediaApps", v)
+    /** 「熄屏運行」要出現的 App；null 表示使用預設（所有遊戲 + YouTube） */
+    var apps: Set<String>?
+        get() = sp.getStringSet("apps", null)?.toSet()
+        set(v) {
+            putSet("apps", v)
+            // 舊版的兩份清單（掛機 / 聽劇）已合併，存新清單時一併清掉
+            sp.edit().remove("keepApps").remove("mediaApps").apply()
+        }
 
     private fun putSet(key: String, v: Set<String>?) {
         sp.edit().apply { if (v == null) remove(key) else putStringSet(key, v) }.apply()
     }
 
-    fun appliesKeep(pkg: String?): Boolean {
-        if (pkg == null) return false
-        keepApps?.let { return pkg in it }
-        return isGame(pkg)
-    }
+    /** 還沒存過新清單，但有舊版（掛機 / 聽劇）的自訂清單 */
+    val usingLegacyApps: Boolean
+        get() = apps == null && (sp.contains("keepApps") || sp.contains("mediaApps"))
 
-    fun appliesMedia(pkg: String?): Boolean {
+    fun applies(pkg: String?): Boolean {
         if (pkg == null) return false
-        mediaApps?.let { return pkg in it }
-        return pkg == DEFAULT_YOUTUBE
+        apps?.let { return pkg in it }
+        // 舊版設定：還沒存過新清單時，沿用「掛機」與「聽劇」兩份清單的聯集
+        val legacyKeep = sp.getStringSet("keepApps", null)
+        val legacyMedia = sp.getStringSet("mediaApps", null)
+        val keep = legacyKeep?.let { pkg in it } ?: isGame(pkg)
+        val media = legacyMedia?.let { pkg in it } ?: (pkg == DEFAULT_YOUTUBE)
+        return keep || media
     }
 
     @Suppress("DEPRECATION")
