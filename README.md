@@ -1,118 +1,121 @@
+**English** | [繁體中文](README.zh-TW.md)
+
 # IdleMate
 
-讓螢幕「看起來關掉」，App 和影片照常在跑的 Android 小工具。
+An Android utility that makes the screen *look* off while your app or video keeps running.
 
-- **🔋 螢幕關閉掛機**：遊戲掛機時畫面全黑，遊戲繼續跑。
-- **🎧 待機聽劇**：YouTube 等 App 畫面全黑，聲音繼續播。
+- **🔋 Idle with screen off**: the screen goes black while a game keeps running (AFK farming).
+- **🎧 Listen in standby**: the screen goes black while YouTube or another app keeps playing audio.
 
-不需要 root，也不需要 Shizuku。
+No root, no Shizuku.
 
-## 下載
+## Download
 
-到 [Releases](https://github.com/david308109/IdleMate/releases/latest) 下載最新的 `IdleMate-x.y.z.apk`，在手機上點開安裝。
+Get the latest `IdleMate-x.y.z.apk` from [Releases](https://github.com/david308109/IdleMate/releases/latest) and open it on your phone to install.
 
-### 安裝時會看到的提示
+### Prompts you will see when installing
 
-1. **Play Protect「建議掃描應用程式」**：IdleMate 不是從 Play 商店安裝的，所以會出現這個提示。可以按掃描，或直接安裝。
-2. **協助工具開關是灰色（受限制的設定）**：Android 對所有從檔案安裝的 App 都會這樣。打開 IdleMate 後照著畫面引導做就好：
-   1. 到協助工具，點一下灰色的 IdleMate，看到提示後按「確定」。
-   2. 到應用程式資訊，點右上角「⋮」→「允許受限制的設定」。
-   3. 回到協助工具，開啟 IdleMate。
+1. **Play Protect "Scan app"**: IdleMate is not installed from the Play Store, so Android shows this prompt. You can scan it or install directly.
+2. **Accessibility toggle is greyed out ("Restricted setting")**: Android does this for every app installed from a file. Open IdleMate and follow the on-screen guide:
+   1. In Accessibility, tap the greyed-out IdleMate once and tap **OK** on the prompt.
+   2. In App info, tap **⋮** in the top-right corner → **Allow restricted settings**.
+   3. Go back to Accessibility and turn IdleMate on.
 
-## 怎麼用
+## How to use
 
-1. 打開指定的 App（預設：所有遊戲用「掛機」、YouTube 用「聽劇」），螢幕邊緣會出現一條細線（把手）。
-2. 從把手**往內滑**，展開選單。
-3. 點功能，畫面立刻全黑，觸控會被擋住，不怕誤觸。
-4. 要回來時，**點兩下螢幕**或**按電源鍵**，會直接看到鎖屏畫面，解鎖即可。
+1. Open one of your chosen apps (default: all games for idling, YouTube for listening). A thin line (the handle) appears at the edge of the screen.
+2. **Swipe inward** from the handle to open the menu.
+3. Tap a feature. The screen turns black right away, and touches are blocked so nothing gets tapped by accident.
+4. To come back, **double-tap the screen** or **press the power button**. You go straight to the lock screen; just unlock.
 
-### 把手
+### The handle
 
-- 直屏時在右側中間，橫屏時預設在右上角。可以在 App 裡改到左邊。
-- **長按約 0.5 秒**，線會變粗，之後可以上下拖動調整位置。直屏、橫屏各自記住位置。
-- 點一下不會展開，避免誤觸。把手的區域不會觸發系統的返回手勢。
-- 只在指定的 App 出現。離開 App、鎖屏或全黑時會自動隱藏。
+- Portrait: right edge, vertically centred. Landscape: top-right by default. It can be moved to the left edge in the app.
+- **Long-press for about 0.5 s** until the line gets thicker, then drag it up or down. Portrait and landscape positions are remembered separately.
+- A single tap does nothing, to avoid accidental opens. The handle area does not trigger the system back gesture.
+- It only appears in your chosen apps, and hides automatically when you leave the app, lock the phone, or the screen is black.
 
-## 權限
+## Permissions
 
-| 權限 | 用途 |
+| Permission | Used for |
 |---|---|
-| 協助工具 | 顯示把手和全黑畫面（蓋在狀態列與導覽列之上）、偵測目前的 App、鎖定螢幕 |
-| 點亮螢幕（Android 14+） | 按電源鍵鎖定後，自動亮屏顯示鎖屏畫面 |
+| Accessibility | Showing the handle and the black cover (above the status and navigation bars), knowing the current app, locking the screen |
+| Turn screen on (Android 14+) | Turning the screen on after locking with the power button, so you see the lock screen |
 
-IdleMate **不讀取任何畫面內容**（`canRetrieveWindowContent=false`），也**沒有網路權限**。
+IdleMate **does not read any screen content** (`canRetrieveWindowContent=false`) and **has no internet permission**.
 
-第一次打開時會跳出說明視窗，並帶你到對應的設定頁。
+On first launch it shows short explanation dialogs and takes you to each settings page.
 
-從檔案安裝的話，IdleMate 會偵測安裝來源，自動加入解除「受限制的設定」的步驟（見[安裝時會看到的提示](#安裝時會看到的提示)）。從 Play 商店或 adb 安裝的不受影響。
+If it was installed from a file, IdleMate detects the install source and adds the steps to lift the restricted setting (see [Prompts you will see when installing](#prompts-you-will-see-when-installing)). Installs from the Play Store or adb are not affected.
 
-## 運作原理
+## How it works
 
-- **全黑**：用協助工具的 `TYPE_ACCESSIBILITY_OVERLAY` 蓋一層全螢幕黑色畫面，加上 `FLAG_KEEP_SCREEN_ON`。系統其實沒有睡眠，所以前景 App 和影片都照常運行。亮度不會被調整。
-- **點兩下**：遮罩用 `GestureDetector` 偵測，觸發 `GLOBAL_ACTION_LOCK_SCREEN`。
-- **電源鍵**：收到 `SCREEN_OFF` 後移除遮罩，再用 `ACQUIRE_CAUSES_WAKEUP` 的 wake lock 點亮螢幕，顯示鎖屏。
-- **偵測前景 App**：監聽 `TYPE_WINDOW_STATE_CHANGED`，只採用真正的 Activity，以及桌面 App 的事件。
+- **Black screen**: a full-screen black `TYPE_ACCESSIBILITY_OVERLAY` window with `FLAG_KEEP_SCREEN_ON`. The system never goes to sleep, so the foreground app and video keep running. Brightness is not changed. The cover is a square of the screen's long edge, so it still covers everything after rotation.
+- **Double-tap**: detected on the cover with `GestureDetector`, which triggers `GLOBAL_ACTION_LOCK_SCREEN`.
+- **Power button**: on `SCREEN_OFF` the cover is removed, then an `ACQUIRE_CAUSES_WAKEUP` wake lock turns the screen on to show the lock screen.
+- **Foreground app detection**: listens to `TYPE_WINDOW_STATE_CHANGED` and only accepts real activities plus events from the home app.
 
-### 已知限制
+### Known limitations
 
-- 鎖屏後影片會停，這是正常的。免費版 YouTube 在畫面暫停後會自己停止播放。
-- 全黑期間螢幕面板其實是亮著的（只是黑色），省電效果比真正關螢幕差。OLED 螢幕的黑色像素幾乎不耗電。
+- Video stops once the phone is locked; this is expected. Free YouTube stops playback by itself when its screen is paused.
+- While black, the panel is actually on (just showing black), so it saves less power than a truly off screen. On OLED screens, black pixels use almost no power.
 
-## 專案結構
+## Project structure
 
 ```
 app/src/main/java/com/idlemate/app/
-├── IdleAccessibilityService.kt  # 核心：把手、選單、全黑遮罩、鎖屏、亮屏、前景偵測
-├── MainActivity.kt              # 設定畫面與首次設定引導（Compose）
-├── Prefs.kt                     # 偏好設定（把手位置、各功能適用的 App）
-├── OemHelper.kt                 # 權限檢查、各廠牌設定頁、安裝來源判斷
-└── DebugLog.kt                  # App 內的診斷紀錄
+├── IdleAccessibilityService.kt  # Core: handle, menu, black cover, lock, wake, foreground detection
+├── MainActivity.kt              # Settings screen and first-run setup guide (Compose)
+├── Prefs.kt                     # Preferences (handle position, apps for each feature)
+├── OemHelper.kt                 # Permission checks, vendor settings pages, install source
+└── DebugLog.kt                  # In-app diagnostic log
 ```
 
 - Kotlin + Jetpack Compose
-- minSdk 26，targetSdk 35
+- minSdk 26, targetSdk 35
 
-## 建置
+## Building
 
-推到 `main` 後，GitHub Actions（[.github/workflows/build-apk.yml](.github/workflows/build-apk.yml)）會自動建置**正式簽章**的 APK，產物名稱是 `IdleMate-release-apk`。
+Every push to `main` makes GitHub Actions ([.github/workflows/build-apk.yml](.github/workflows/build-apk.yml)) build a **release-signed** APK, uploaded as the `IdleMate-release-apk` artifact.
 
-正式簽章的金鑰只存在 GitHub Secrets，**不在 repo 裡**：
+The release signing key lives only in GitHub Secrets, **never in the repo**:
 
-| Secret | 內容 |
+| Secret | Contents |
 |---|---|
-| `IDLEMATE_KEYSTORE_B64` | PKCS12 金鑰檔的 base64 |
-| `IDLEMATE_KEYSTORE_PASSWORD` | 金鑰密碼 |
-| `IDLEMATE_KEY_ALIAS` | 金鑰別名 |
-> 金鑰遺失就無法再發布可以覆蓋安裝的更新，請務必另外備份。換簽章時，使用者必須先解除安裝舊版。
+| `IDLEMATE_KEYSTORE_B64` | Base64 of the PKCS12 keystore |
+| `IDLEMATE_KEYSTORE_PASSWORD` | Keystore password |
+| `IDLEMATE_KEY_ALIAS` | Key alias |
 
-本機建置 debug 版用的是 repo 裡固定的 `idlemate-debug.keystore`：
+> If the key is lost, no further update can be installed over existing installs. Keep a separate backup. If the signing key ever changes, users must uninstall the old version first.
+
+Local debug builds use the fixed `idlemate-debug.keystore` in the repo:
 
 ```sh
 gradle assembleDebug
 ```
 
-### 發布新版本
+### Publishing a new version
 
-推一個 `v` 開頭的標籤，就會自動建置、簽章並發布到 [Releases](https://github.com/david308109/IdleMate/releases)：
+Push a tag starting with `v`. The workflow builds, signs and publishes it to [Releases](https://github.com/david308109/IdleMate/releases):
 
 ```sh
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-- 版本名稱取自標籤（`v0.2.0` → `0.2.0`），版本號取自建置次數，所以每一版都能覆蓋安裝。
-- 更新說明會自動列出與上一個標籤之間的 commit。
-- 一般推到 `main` 只會建置，不會發布。
+- The version name comes from the tag (`v0.2.0` → `0.2.0`) and the version code from the build number, so every release installs over the previous one.
+- Release notes list the commits since the previous tag.
+- Ordinary pushes to `main` only build; they do not publish.
 
-### 安裝到手機
+### Installing on a phone
 
 ```sh
 gh run download <run-id> -n IdleMate-release-apk -D IdleMate-apk
 adb install -r IdleMate-apk/app-release.apk
 ```
 
-用 adb 更新後，協助工具不會自動重新連上，要在設定裡把 IdleMate 關掉再打開一次。
+After updating via adb, the accessibility service does not reconnect by itself. Turn IdleMate off and on again in Accessibility settings.
 
-## 測試
+## Testing
 
-見 [TESTING.md](TESTING.md)。
+See [TESTING.md](TESTING.md).

@@ -1,63 +1,66 @@
-# IdleMate 測試清單
+**English** | [繁體中文](TESTING.zh-TW.md)
 
-## 1. 「受限制的設定」引導（從檔案安裝）
+# IdleMate test checklist
 
-Android 13 起，**從檔案安裝**的 App（用 LINE、雲端、瀏覽器下載的 APK）會被系統鎖住協助工具，開關是灰色的。IdleMate 會依安裝來源判斷，跳出解除步驟。
+## 1. "Restricted setting" guide (installed from a file)
 
-> 從 Play 商店或電腦 adb 安裝的不會被鎖，所以在自己手機上用 adb 測不出來。
+Since Android 13, apps **installed from a file** (an APK sent over LINE, cloud storage, or downloaded in a browser) have their accessibility toggle locked and greyed out. IdleMate checks its install source and shows the steps to unlock it.
 
-### 真實測試（最準）
+> Installs from the Play Store or via adb are not restricted, so this cannot be reproduced on your own phone with adb.
 
-1. 從 GitHub Actions 下載 `IdleMate-release-apk`。
-2. 把 `app-release.apk` 傳到**另一台手機**（或先在這台解除安裝 IdleMate），從檔案管理員點開安裝。
-3. 打開 IdleMate，應該依序出現：
-   - **步驟 1 / 4　先解除「受限制的設定」**
-     - 按「前往」會到協助工具頁，IdleMate 是灰色，顯示「由受限制的設定控管」。
-     - 點一下，跳出提示後按「確定」，再回到 IdleMate。
-   - **步驟 2 / 4　解除「受限制的設定」**
-     - 按「前往」會到應用程式資訊頁。
-     - 點右上角「⋮」→「允許受限制的設定」，驗證身分，再回到 IdleMate。
-   - **步驟 3 / 4　允許 IdleMate 使用協助工具？**：開啟 IdleMate 的開關。
-   - **步驟 4 / 4　允許 IdleMate 點亮螢幕？**：開啟 IdleMate 的開關。
-4. 回到 IdleMate，應該顯示「設定完成」，設定卡片也會消失。
+### Real test (most reliable)
 
-檢查重點：
+1. Download `IdleMate-x.y.z.apk` from [Releases](https://github.com/david308109/IdleMate/releases/latest) (or the `IdleMate-release-apk` artifact from GitHub Actions).
+2. Copy the APK to **another phone** (or uninstall IdleMate on this one first) and install it by tapping it in a file manager.
+3. Open IdleMate. These should appear in order:
+   - **Step 1 / 4: unlock the restricted setting first**
+     - **Go** opens Accessibility settings, where IdleMate is greyed out and labelled as controlled by a restricted setting.
+     - Tap it once, tap **OK** on the prompt, then return to IdleMate.
+   - **Step 2 / 4: unlock the restricted setting**
+     - **Go** opens App info.
+     - Tap **⋮** in the top-right corner → **Allow restricted settings**, verify your identity, then return to IdleMate.
+   - **Step 3 / 4: allow IdleMate to use accessibility?** Turn IdleMate on.
+   - **Step 4 / 4: allow IdleMate to turn the screen on?** Turn IdleMate on.
+4. Back in IdleMate, a "setup complete" message should show and the setup card should disappear.
 
-- 第 2 步的「⋮」裡有沒有「允許受限制的設定」。
-- 解除後協助工具的開關能不能打開。
-- 已經解除過再重裝的人，在第 1 步直接打開開關後，應該不會再看到第 2 步。
+Check that:
 
-### 用 adb 模擬（只能看畫面，不能真的解除）
+- In step 2, the **⋮** menu contains **Allow restricted settings**.
+- After unlocking, the accessibility toggle can be turned on.
+- For someone who already unlocked it and reinstalls: after turning the toggle on directly in step 1, step 2 does not appear.
+
+### Simulating with adb (screens only; cannot actually unlock)
 
 ```sh
-# 假裝是從檔案安裝來啟動（-S 先強制關閉，確保參數送得進去）
+# Launch as if installed from a file (-S force-stops first so the extra is delivered)
 adb shell am start -S -n com.idlemate.app/.MainActivity --ez simulate_sideload true
 ```
 
-模擬前要先關掉 IdleMate 的協助工具，不然不會出現引導；測完記得重新開啟。
+Turn IdleMate's accessibility service off before simulating, or the guide will not show. Turn it back on afterwards.
 
-系統記錄的限制狀態可以用 `adb shell appops get com.idlemate.app ACCESS_RESTRICTED_SETTINGS` 查看：
+The system's restriction state can be checked with `adb shell appops get com.idlemate.app ACCESS_RESTRICTED_SETTINGS`:
 
-| 狀態 | 意思 |
+| State | Meaning |
 |---|---|
-| `deny` | 被鎖，還沒在協助工具點過（「⋮」裡還沒有選項） |
-| `ignore` | 被鎖，已經點過一次（「⋮」裡出現選項） |
-| `allow` | 已解除 |
+| `deny` | Locked; not yet tapped in Accessibility (the **⋮** option is not shown yet) |
+| `ignore` | Locked; tapped once (the **⋮** option is now shown) |
+| `allow` | Unlocked |
 
-注意：App 本身讀不到這個狀態（系統會拋 SecurityException），所以 App 是用安裝來源判斷，不是用這個值。
+Note: the app itself cannot read this state (the system throws a SecurityException), so the app decides based on the install source, not this value.
 
-## 2. 每次改版後的基本檢查
+## 2. Basic checks after every change
 
-- [ ] 打開 YouTube，螢幕邊緣出現把手。回到桌面，把手消失。
-- [ ] 從把手往內滑，選單展開，**不會**同時觸發返回上一頁。
-- [ ] 點一下把手不會展開選單。
-- [ ] 長按把手約 0.5 秒，線變粗（不震動），之後可以上下拖動。
-- [ ] 橫屏時，把手預設在右上角。
-- [ ] 「🎧 待機聽劇」：畫面全黑、聲音不斷、點擊被擋住。
-- [ ] 「🔋 螢幕關閉掛機」：遊戲裡畫面全黑，遊戲繼續跑。
-- [ ] 全黑時點兩下螢幕，或按電源鍵，會直接看到鎖屏畫面。
+- [ ] Open YouTube: the handle appears at the screen edge. Go to the home screen: the handle disappears.
+- [ ] Swipe inward from the handle: the menu opens and the system back gesture is **not** triggered.
+- [ ] A single tap on the handle does not open the menu.
+- [ ] Long-press the handle for about 0.5 s: the line gets thicker (no vibration) and can then be dragged up or down.
+- [ ] In landscape, the handle defaults to the top-right.
+- [ ] 🎧 Listen in standby: the screen goes black, audio keeps playing, taps are blocked.
+- [ ] 🔋 Idle with screen off: the screen goes black in a game and the game keeps running.
+- [ ] Rotate the phone while black (portrait ↔ landscape): the cover still fills the whole screen.
+- [ ] While black, double-tap the screen or press the power button: you go straight to the lock screen.
 
-## 3. adb 小提醒
+## 3. adb notes
 
-- 用 `adb install -r` 更新後，協助工具不會自動重新連上。要在設定裡把 IdleMate 關掉再打開，或用 adb 重寫 `enabled_accessibility_services`。
-- 測試時如果改了手機設定（例如螢幕自動關閉時間），**改之前先記下原本的值**，測完改回來。
+- After updating with `adb install -r`, the accessibility service does not reconnect by itself. Turn IdleMate off and on in settings, or rewrite `enabled_accessibility_services` with adb.
+- If a test changes a phone setting (for example the screen timeout), **note the original value first** and restore it afterwards.

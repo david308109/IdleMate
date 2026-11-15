@@ -69,13 +69,15 @@ jobs:
           git fetch --tags --unshallow --quiet || true
           PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           {
-            echo "## Changes"
+            echo "## Changes / 更新內容"
             echo
             git log --pretty='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | head -30
             echo
-            echo "## Install"
+            echo "## Install / 安裝"
             echo
-            echo "Download \`$APK\` and open it on your phone to install. First-time setup: see the [README](https://github.com/${GITHUB_REPOSITORY}#下載)."
+            echo "Download \`$APK\` and open it on your phone to install. First-time setup: see the [README](https://github.com/${GITHUB_REPOSITORY}#download)."
+            echo
+            echo "下載 \`$APK\` 後在手機上點開安裝。第一次安裝請參考 [中文說明](https://github.com/${GITHUB_REPOSITORY}/blob/main/README.zh-TW.md#下載)。"
           } > notes.md
           gh release create "$GITHUB_REF_NAME" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
