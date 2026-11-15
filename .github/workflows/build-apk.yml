@@ -65,17 +65,17 @@ jobs:
         run: |
           APK="IdleMate-${IDLEMATE_VERSION_NAME}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
-          # 更新說明：上一個標籤到這個標籤之間的 commit 標題
+          # Release notes (English): commit subjects since the previous tag
           git fetch --tags --unshallow --quiet || true
           PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           {
-            echo "## 更新內容"
+            echo "## Changes"
             echo
             git log --pretty='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | head -30
             echo
-            echo "## 安裝"
+            echo "## Install"
             echo
-            echo "下載 \`$APK\` 後在手機上點開安裝。第一次安裝請參考 [README](https://github.com/${GITHUB_REPOSITORY}#安裝時會看到的提示)。"
+            echo "Download \`$APK\` and open it on your phone to install. First-time setup: see the [README](https://github.com/${GITHUB_REPOSITORY}#下載)."
           } > notes.md
           gh release create "$GITHUB_REF_NAME" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
