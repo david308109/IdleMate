@@ -294,13 +294,27 @@ class IdleAccessibilityService : AccessibilityService() {
         setOnClickListener { onClick() }
     }
 
-    /** 目前把手那一側（左或右）的鏡頭挖孔寬度（px）；沒有則為 0 */
+    /**
+     * 目前把手那一側（左或右），從螢幕邊緣到前鏡頭孔外緣的距離（px）；沒有則為 0。
+     * Android 12+ 用鏡頭孔的實際形狀（系統的安全範圍通常比鏡頭孔大一圈）；舊版用安全範圍。
+     */
     private fun cutoutInsetOnHandleSide(): Int {
         if (Build.VERSION.SDK_INT < 30) return 0
-        val insets = runCatching {
-            wm.currentWindowMetrics.windowInsets.getInsets(android.view.WindowInsets.Type.displayCutout())
-        }.getOrNull() ?: return 0
-        return if (left) insets.left else insets.right
+        val metrics = runCatching { wm.currentWindowMetrics }.getOrNull() ?: return 0
+        val safe = metrics.windowInsets.getInsets(android.view.WindowInsets.Type.displayCutout())
+        val safeInset = if (left) safe.left else safe.right
+        if (safeInset <= 0) return 0
+        if (Build.VERSION.SDK_INT >= 31) {
+            val path = runCatching { metrics.windowInsets.displayCutout?.cutoutPath }.getOrNull()
+            if (path != null && !path.isEmpty) {
+                val b = android.graphics.RectF()
+                @Suppress("DEPRECATION") path.computeBounds(b, true)
+                val w = metrics.bounds.width()
+                val exact = if (left) b.right else w - b.left
+                if (exact > 0 && exact <= safeInset) return kotlin.math.ceil(exact).toInt()
+            }
+        }
+        return safeInset
     }
 
     private fun openPanel(y: Int) {
@@ -319,8 +333,8 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
-        // 把手那一側有鏡頭挖孔（橫屏）時：選單不進入鏡頭那一條，緊貼它的內側邊緣；
-        // 沒有挖孔時：與螢幕邊緣留 12dp。挖孔寬度依每支手機自動取得。
+        // 把手那一側有前鏡頭（橫屏）時：選單緊貼鏡頭孔外緣；
+        // 沒有時：與螢幕邊緣留 12dp。鏡頭孔位置依每支手機自動取得。
         val cutout = cutoutInsetOnHandleSide()
         lp.x = if (cutout > 0) cutout else dp(12)
         runCatching { wm.addView(box, lp) }.onFailure { return }
