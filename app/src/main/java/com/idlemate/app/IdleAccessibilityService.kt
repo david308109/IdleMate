@@ -201,6 +201,13 @@ class IdleAccessibilityService : AccessibilityService() {
         gravity = (if (left) Gravity.START else Gravity.END) or
             (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
         y = handleY()
+        // 允許延伸進前鏡頭挖孔那一條，橫屏時把手才能貼齊螢幕最邊緣
+        if (Build.VERSION.SDK_INT >= 28) {
+            layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
