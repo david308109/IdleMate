@@ -249,7 +249,7 @@ class IdleAccessibilityService : AccessibilityService() {
         var opened = false
         val switchAt = dp(96).toFloat()  // 往中間拉超過這個距離，就彈到另一邊
         var refX = 0f        // 起算點：到這一邊之後，手指最靠近這一邊的位置（可左右來回）
-        var flying = false   // 正在飛往另一邊（動畫中不再判斷）
+        var flying = false   // 飛行動畫進行中（只用來暫停「跟著手指」，換邊判斷隨時有效）
 
         // 換邊特效：線整條跟著手指往中間移動（帶阻力），拉夠遠就直接飛到另一邊
         fun followFinger(d: Float) {
@@ -257,25 +257,24 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         fun flyToOtherSide(screenW: Float) {
             val toLeft = !onLeft
-            val travel = screenW - bar.width
+            // 先記成新的那一邊（立刻生效），再從線「目前看到的位置」飛過去；
+            // 飛到一半再換邊也能直接從當下位置折返
+            val visualLeft = (if (onLeft) 0f else screenW - bar.width) + bar.translationX
             bar.animate().cancel()
+            onLeft = toLeft
+            prefs.edgeLeft = toLeft
+            val side = if (toLeft) Gravity.START else Gravity.END
+            lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
+            barLp.gravity = side or Gravity.CENTER_VERTICAL
+            bar.layoutParams = barLp
+            runCatching { wm.updateViewLayout(touch, lp) }
+            val restLeft = if (toLeft) 0f else screenW - bar.width
+            bar.translationX = visualLeft - restLeft
             flying = true
-            bar.animate().translationX((if (toLeft) -1 else 1) * travel).setDuration(200)
-                .setInterpolator(android.view.animation.AccelerateInterpolator())
-                .withEndAction {
-                    // 落到新的邊緣：改貼另一邊，再從內側輕輕彈一下
-                    onLeft = toLeft
-                    prefs.edgeLeft = toLeft
-                    val side = if (toLeft) Gravity.START else Gravity.END
-                    lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
-                    barLp.gravity = side or Gravity.CENTER_VERTICAL
-                    bar.layoutParams = barLp
-                    runCatching { wm.updateViewLayout(touch, lp) }
-                    bar.translationX = (if (toLeft) 1 else -1) * dp(14).toFloat()
-                    flying = false
-                    bar.animate().translationX(0f).setDuration(320)
-                        .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
-                }.start()
+            bar.animate().translationX(0f).setDuration(300)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
+                .withEndAction { flying = false }
+                .start()
         }
         // 放開時：線在短時間內一邊變細、一邊滑回邊緣（不要一下子跳回去）
         fun releaseSmoothly(slide: Boolean) {
@@ -320,15 +319,13 @@ class IdleAccessibilityService : AccessibilityService() {
                     val dy = e.rawY - downY
                     if (moving) {
                         lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
-                        if (!flying) {
-                            // 起算點跟著手指往這一邊退（線在左：取最左；線在右：取最右）
-                            refX = if (onLeft) minOf(refX, e.rawX) else maxOf(refX, e.rawX)
-                            val d = if (onLeft) e.rawX - refX else refX - e.rawX  // 往中間拉了多遠
-                            if (d >= switchAt) {
-                                refX = e.rawX  // 換邊後從這裡重新起算，可以再拉回來
-                                flyToOtherSide(resources.displayMetrics.widthPixels.toFloat())
-                            } else followFinger(d)
-                        }
+                        // 起算點跟著手指往這一邊退（線在左：取最左；線在右：取最右）
+                        refX = if (onLeft) minOf(refX, e.rawX) else maxOf(refX, e.rawX)
+                        val d = if (onLeft) e.rawX - refX else refX - e.rawX  // 往中間拉了多遠
+                        if (d >= switchAt) {
+                            refX = e.rawX  // 換邊後從這裡重新起算，可以再拉回來（飛行中也可以）
+                            flyToOtherSide(resources.displayMetrics.widthPixels.toFloat())
+                        } else if (!flying) followFinger(d)
                         runCatching { wm.updateViewLayout(touch, lp) }
                     } else {
                         if (abs(dx) > slop || abs(dy) > slop) {
