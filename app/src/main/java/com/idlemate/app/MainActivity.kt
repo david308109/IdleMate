@@ -182,7 +182,6 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
 
     var logTick by remember { mutableStateOf(0) }
     var edgeOn by remember(refreshTick) { mutableStateOf(prefs.edgeOn) }
-    var edgeLeft by remember(refreshTick) { mutableStateOf(prefs.edgeLeft) }
 
     val a11yOk = IdleAccessibilityService.isEnabled(ctx)
     var showPicker by remember { mutableStateOf(false) }
@@ -280,14 +279,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         IdleAccessibilityService.instance?.refreshHandle()
                     })
                 }
-                Text("按住把手約 0.5 秒，線變粗後即可上下拖曳調整位置；拖過螢幕中間可以換到另一邊。", style = MaterialTheme.typography.bodySmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("放在左邊", modifier = Modifier.weight(1f))
-                    Switch(checked = edgeLeft, onCheckedChange = {
-                        edgeLeft = it; prefs.edgeLeft = it
-                        IdleAccessibilityService.instance?.refreshHandle()
-                    })
-                }
+                Text("按住把手約 0.5 秒，線變粗後即可上下拖曳調整位置；往中間拉約 96dp，就會換到另一邊。", style = MaterialTheme.typography.bodySmall)
             }
         }
 
