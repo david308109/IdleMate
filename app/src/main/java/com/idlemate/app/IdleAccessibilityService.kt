@@ -156,6 +156,7 @@ class IdleAccessibilityService : AccessibilityService() {
         runCatching { unregisterReceiver(screenReceiver) }
         panel?.let { runCatching { wm.removeView(it) } }; panel = null
         handle?.let { runCatching { wm.removeView(it) } }; handle = null
+        removeDragLayer()
         instance = null
     }
 
@@ -166,6 +167,7 @@ class IdleAccessibilityService : AccessibilityService() {
         closePanel()
         handle?.let { runCatching { wm.removeView(it) } }
         handle = null
+        removeDragLayer()
         if (prefs.edgeOn) showHandle()
         updateHandle()
     }
@@ -216,23 +218,76 @@ class IdleAccessibilityService : AccessibilityService() {
         if (instance != null) refreshHandle()
     }
 
+    /** 移動把手時才出現的全寬圖層（只畫線、不接收觸控） */
+    private var dragLayer: View? = null
+
+    private fun removeDragLayer() {
+        dragLayer?.let { runCatching { wm.removeView(it) } }
+        dragLayer = null
+    }
+
     private fun showHandle() {
         val thin = dp(5); val thick = dp(22)  // 移動時加粗
-        val bar = View(this).apply {
+        val barH = dp(77)
+        val idleColor = 0xB0546E7A.toInt(); val activeColor = 0xFF90A4AE.toInt()
+        fun makeBar() = View(this).apply {
             background = GradientDrawable().apply {
-                cornerRadius = dp(100).toFloat(); setColor(0xB0546E7A.toInt())  // 圓角取大值 → 兩端是半圓（膠囊形）
+                cornerRadius = dp(100).toFloat(); setColor(idleColor)  // 圓角取大值 → 兩端是半圓（膠囊形）
             }
         }
-        var onLeft = left  // 移動模式中拖過螢幕中線會換邊
-        val barLp = FrameLayout.LayoutParams(thin, dp(77),
-            (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL)
+        var onLeft = left  // 移動模式中可以換邊
+        fun sideGravity() = if (onLeft) Gravity.START else Gravity.END
+
+        // 平常看到、也負責接收觸控的小視窗。大小固定不變：
+        // 手指按下後整段拖曳都會交給它，就算手指移出範圍也一樣，所以不用撐大
+        // （撐大再縮回時，右邊的把手會被系統的移動動畫拖出一條從左到右的線）
+        val bar = makeBar()
+        val barLp = FrameLayout.LayoutParams(thin, barH, sideGravity() or Gravity.CENTER_VERTICAL)
         val touch = FrameLayout(this).apply { addView(bar, barLp) }
         val lp = params(dp(28), dp(120))
 
-        fun setThick(on: Boolean) {
-            barLp.width = if (on) thick else thin
-            bar.layoutParams = barLp
-            (bar.background as GradientDrawable).setColor(if (on) 0xFF90A4AE.toInt() else 0xB0546E7A.toInt())
+        // 移動時另外疊一層全寬、不接收觸控的圖層，只用來畫粗線與飛行動畫
+        val dBar = makeBar()
+        val dBarLp = FrameLayout.LayoutParams(thick, barH, sideGravity() or Gravity.CENTER_VERTICAL)
+        var layerLp: WindowManager.LayoutParams? = null
+        var pendingRemove: Runnable? = null
+
+        fun applySide() {
+            lp.gravity = sideGravity() or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
+            barLp.gravity = sideGravity() or Gravity.CENTER_VERTICAL; bar.layoutParams = barLp
+            dBarLp.gravity = barLp.gravity; dBar.layoutParams = dBarLp
+            layerLp?.gravity = lp.gravity
+        }
+        fun syncWindows() {
+            runCatching { wm.updateViewLayout(touch, lp) }
+            val l = dragLayer; val llp = layerLp
+            if (l != null && llp != null) { llp.y = lp.y; runCatching { wm.updateViewLayout(l, llp) } }
+        }
+        fun showLayer() {
+            pendingRemove?.let { handler.removeCallbacks(it) }; pendingRemove = null
+            dBar.animate().cancel(); dBar.translationX = 0f
+            dBarLp.width = thick; dBar.layoutParams = dBarLp
+            (dBar.background as GradientDrawable).setColor(activeColor)
+            if (dragLayer == null) {
+                (dBar.parent as? android.view.ViewGroup)?.removeView(dBar)
+                val l = FrameLayout(this).apply { addView(dBar, dBarLp) }
+                val llp = params(WindowManager.LayoutParams.MATCH_PARENT, dp(120)).apply {
+                    flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                }
+                if (runCatching { wm.addView(l, llp) }.isFailure) return
+                dragLayer = l; layerLp = llp
+            }
+            applySide(); syncWindows()
+            bar.alpha = 0f  // 移動中由圖層顯示
+        }
+        fun hideLayerLater(delay: Long) {
+            val r = Runnable {
+                bar.alpha = 1f
+                removeDragLayer(); layerLp = null
+                pendingRemove = null
+            }
+            pendingRemove = r
+            handler.postDelayed(r, delay)
         }
 
         // 告訴系統：把手這一塊不要觸發「返回」手勢，避免滑出選單時同時返回上一頁
@@ -253,59 +308,49 @@ class IdleAccessibilityService : AccessibilityService() {
 
         // 換邊特效：線整條跟著手指往中間移動（帶阻力），拉夠遠就直接飛到另一邊
         fun followFinger(d: Float) {
-            bar.translationX = (if (onLeft) 1 else -1) * (d * 0.4f).coerceIn(0f, switchAt * 0.4f)
+            dBar.translationX = (if (onLeft) 1 else -1) * (d * 0.4f).coerceIn(0f, switchAt * 0.4f)
         }
         fun flyToOtherSide(screenW: Float) {
             val toLeft = !onLeft
             // 先記成新的那一邊（立刻生效），再從線「目前看到的位置」飛過去；
             // 飛到一半再換邊也能直接從當下位置折返
-            val visualLeft = (if (onLeft) 0f else screenW - bar.width) + bar.translationX
-            bar.animate().cancel()
+            val visualLeft = (if (onLeft) 0f else screenW - dBar.width) + dBar.translationX
+            dBar.animate().cancel()
             onLeft = toLeft
             prefs.edgeLeft = toLeft
-            val side = if (toLeft) Gravity.START else Gravity.END
-            lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
-            barLp.gravity = side or Gravity.CENTER_VERTICAL
-            bar.layoutParams = barLp
-            runCatching { wm.updateViewLayout(touch, lp) }
-            val restLeft = if (toLeft) 0f else screenW - bar.width
-            bar.translationX = visualLeft - restLeft
+            applySide(); syncWindows()
+            val restLeft = if (toLeft) 0f else screenW - dBar.width
+            dBar.translationX = visualLeft - restLeft
             flying = true
-            bar.animate().translationX(0f).setDuration(300)
+            dBar.animate().translationX(0f).setDuration(300)
                 .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
                 .withEndAction { flying = false }
                 .start()
         }
         // 放開時：線在短時間內一邊變細、一邊滑回邊緣（不要一下子跳回去）
         fun releaseSmoothly(slide: Boolean) {
-            val w0 = barLp.width
-            val t0 = bar.translationX
-            if (slide) bar.animate().cancel()
-            (bar.background as GradientDrawable).setColor(0xB0546E7A.toInt())
+            val w0 = dBarLp.width
+            val t0 = dBar.translationX
+            if (slide) dBar.animate().cancel()
+            (dBar.background as GradientDrawable).setColor(idleColor)
             android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = 220
                 interpolator = android.view.animation.DecelerateInterpolator()
                 addUpdateListener {
                     val t = it.animatedValue as Float
-                    barLp.width = (w0 + (thin - w0) * t).toInt().coerceAtLeast(1)
-                    bar.layoutParams = barLp
-                    if (slide) bar.translationX = t0 * (1f - t)
+                    dBarLp.width = (w0 + (thin - w0) * t).toInt().coerceAtLeast(1)
+                    dBar.layoutParams = dBarLp
+                    if (slide) dBar.translationX = t0 * (1f - t)
                 }
                 start()
             }
-        }
-        fun setWindowWidth(w: Int) {
-            lp.width = w
-            runCatching { wm.updateViewLayout(touch, lp) }
         }
 
         val longPress = Runnable {
             moving = true
             flying = false
             refX = downX
-            setThick(true)
-            // 移動時暫時把視窗撐滿整個寬度，線才能被拉長、也能拖到另一邊
-            setWindowWidth(WindowManager.LayoutParams.MATCH_PARENT)
+            showLayer()
         }
         touch.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -326,7 +371,7 @@ class IdleAccessibilityService : AccessibilityService() {
                             refX = e.rawX  // 換邊後從這裡重新起算，可以再拉回來（飛行中也可以）
                             flyToOtherSide(resources.displayMetrics.widthPixels.toFloat())
                         } else if (!flying) followFinger(d)
-                        runCatching { wm.updateViewLayout(touch, lp) }
+                        syncWindows()
                     } else {
                         if (abs(dx) > slop || abs(dy) > slop) {
                             moved = true
@@ -341,7 +386,7 @@ class IdleAccessibilityService : AccessibilityService() {
                         saveHandleY(lp.y)
                         // 沒在飛：一邊變細一邊滑回邊緣；正在飛：讓它飛完，只把線變細
                         releaseSmoothly(slide = !flying)
-                        handler.postDelayed({ if (!moving) setWindowWidth(dp(28)) }, 560)  // 等動畫結束再縮回
+                        hideLayerLater(if (flying) 380 else 260)  // 動畫結束後換回平常的小視窗
                     }
                     moving = false
                 }
