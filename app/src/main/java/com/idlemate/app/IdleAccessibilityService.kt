@@ -319,10 +319,10 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
-        // 把手那一側有鏡頭挖孔（橫屏）時：選單從鏡頭那一條的中線開始，壓在鏡頭條上；
+        // 把手那一側有鏡頭挖孔（橫屏）時：選單不進入鏡頭那一條，緊貼它的內側邊緣；
         // 沒有挖孔時：與螢幕邊緣留 12dp。挖孔寬度依每支手機自動取得。
         val cutout = cutoutInsetOnHandleSide()
-        lp.x = if (cutout > 0) cutout / 2 else dp(12)
+        lp.x = if (cutout > 0) cutout else dp(12)
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box
         updateHandle()
