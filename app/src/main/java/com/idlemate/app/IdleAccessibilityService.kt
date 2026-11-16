@@ -201,8 +201,7 @@ class IdleAccessibilityService : AccessibilityService() {
         gravity = (if (left) Gravity.START else Gravity.END) or
             (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
         y = handleY()
-        // 把手：允許延伸進前鏡頭挖孔那一條，橫屏時才能貼齊螢幕最邊緣。
-        // 選單：不延伸，與邊緣（或鏡頭那一條）保持距離
+        // 允許延伸進前鏡頭挖孔那一條：橫屏時把手貼齊螢幕最邊緣，選單也從螢幕邊緣算起（與直屏一致）
         if (intoCutout && Build.VERSION.SDK_INT >= 28) {
             layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -309,7 +308,7 @@ class IdleAccessibilityService : AccessibilityService() {
         box.setOnTouchListener { _, e ->
             if (e.action == MotionEvent.ACTION_OUTSIDE) closePanel(); false
         }
-        val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true, intoCutout = false)
+        val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
         lp.x = dp(12)  // 選單與螢幕邊緣留一段距離
         runCatching { wm.addView(box, lp) }.onFailure { return }
