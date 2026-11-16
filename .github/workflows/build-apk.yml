@@ -65,13 +65,18 @@ jobs:
         run: |
           APK="IdleMate-${IDLEMATE_VERSION_NAME}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
-          # Release notes (English): commit subjects since the previous tag
+          # 更新說明：優先用 release-notes/<tag>.md（精簡的雙語重點）；沒有才列出上一個標籤以來的 commit
+          NOTES="release-notes/${GITHUB_REF_NAME}.md"
           git fetch --tags --unshallow --quiet || true
           PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           {
             echo "## Changes / 更新內容"
             echo
-            git log --pretty='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | head -30
+            if [ -f "$NOTES" ]; then
+              cat "$NOTES"
+            else
+              git log --pretty='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | head -30
+            fi
             echo
             echo "## Install / 安裝"
             echo

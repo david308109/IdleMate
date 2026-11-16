@@ -108,7 +108,7 @@ git push origin v0.2.0
 ```
 
 - The version name comes from the tag (`v0.2.0` → `0.2.0`) and the version code from the build number, so every release installs over the previous one.
-- Release notes list the commits since the previous tag.
+- Release notes come from `release-notes/<tag>.md` (short bilingual highlights, written before tagging). Without that file, the commits since the previous tag are listed instead.
 - Ordinary pushes to `main` only build; they do not publish.
 
 ### Installing on a phone
