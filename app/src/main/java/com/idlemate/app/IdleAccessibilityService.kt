@@ -191,7 +191,7 @@ class IdleAccessibilityService : AccessibilityService() {
         if (landscape) prefs.edgeOffsetYLand = y.coerceAtLeast(0) else prefs.edgeOffsetY = y
     }
 
-    private fun params(w: Int, h: Int, watchOutside: Boolean = false) = WindowManager.LayoutParams(
+    private fun params(w: Int, h: Int, watchOutside: Boolean = false, intoCutout: Boolean = true) = WindowManager.LayoutParams(
         w, h,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -201,13 +201,14 @@ class IdleAccessibilityService : AccessibilityService() {
         gravity = (if (left) Gravity.START else Gravity.END) or
             (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
         y = handleY()
-        // 允許延伸進前鏡頭挖孔那一條，橫屏時把手才能貼齊螢幕最邊緣
-        if (Build.VERSION.SDK_INT >= 28) {
+        // 把手：允許延伸進前鏡頭挖孔那一條，橫屏時才能貼齊螢幕最邊緣。
+        // 選單：不延伸，與邊緣（或鏡頭那一條）保持距離
+        if (intoCutout && Build.VERSION.SDK_INT >= 28) {
             layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+        if (intoCutout && Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -217,14 +218,14 @@ class IdleAccessibilityService : AccessibilityService() {
     }
 
     private fun showHandle() {
-        val thin = dp(5); val thick = dp(11)
+        val thin = dp(5); val thick = dp(22)  // 移動時加粗
         val bar = View(this).apply {
             background = GradientDrawable().apply {
-                cornerRadius = dp(4).toFloat(); setColor(0xB0546E7A.toInt())
+                cornerRadius = dp(100).toFloat(); setColor(0xB0546E7A.toInt())  // 圓角取大值 → 兩端是半圓（膠囊形）
             }
         }
         val onLeft = left
-        val barLp = FrameLayout.LayoutParams(thin, dp(96),
+        val barLp = FrameLayout.LayoutParams(thin, dp(77),
             (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL)
         val touch = FrameLayout(this).apply { addView(bar, barLp) }
         val lp = params(dp(28), dp(120))
@@ -308,9 +309,9 @@ class IdleAccessibilityService : AccessibilityService() {
         box.setOnTouchListener { _, e ->
             if (e.action == MotionEvent.ACTION_OUTSIDE) closePanel(); false
         }
-        val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true)
+        val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true, intoCutout = false)
         lp.y = y
-        lp.x = dp(6)
+        lp.x = dp(12)  // 選單與螢幕邊緣留一段距離
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box
         updateHandle()
