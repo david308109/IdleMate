@@ -294,6 +294,15 @@ class IdleAccessibilityService : AccessibilityService() {
         setOnClickListener { onClick() }
     }
 
+    /** 目前把手那一側（左或右）的鏡頭挖孔寬度（px）；沒有則為 0 */
+    private fun cutoutInsetOnHandleSide(): Int {
+        if (Build.VERSION.SDK_INT < 30) return 0
+        val insets = runCatching {
+            wm.currentWindowMetrics.windowInsets.getInsets(android.view.WindowInsets.Type.displayCutout())
+        }.getOrNull() ?: return 0
+        return if (left) insets.left else insets.right
+    }
+
     private fun openPanel(y: Int) {
         if (panel != null) return
         val box = LinearLayout(this).apply {
@@ -310,7 +319,10 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
-        lp.x = dp(12)  // 選單與螢幕邊緣留一段距離
+        // 把手那一側有鏡頭挖孔（橫屏）時：選單從鏡頭那一條的中線開始，壓在鏡頭條上；
+        // 沒有挖孔時：與螢幕邊緣留 12dp。挖孔寬度依每支手機自動取得。
+        val cutout = cutoutInsetOnHandleSide()
+        lp.x = if (cutout > 0) cutout / 2 else dp(12)
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box
         updateHandle()
