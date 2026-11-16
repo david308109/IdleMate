@@ -247,6 +247,19 @@ class IdleAccessibilityService : AccessibilityService() {
         var moving = false   // 長按 0.5 秒後進入移動模式
         var moved = false    // 手指已經滑動（不算點一下）
         var opened = false
+        val pullMax = dp(40).toFloat()  // 拉到這個距離就打開選單
+        // 拉扯特效：線跟著手指被拉粗、往內凸出（以靠邊那一側為支點）
+        fun setPull(dx: Float) {
+            val k = (dx / pullMax).coerceIn(0f, 1f)
+            bar.pivotX = if (onLeft) 0f else bar.width.toFloat()
+            bar.scaleX = 1f + 1.8f * k
+            bar.scaleY = 1f - 0.15f * k
+            bar.translationX = (if (onLeft) 1 else -1) * dp(6) * k
+        }
+        fun springBack() {
+            bar.animate().scaleX(1f).scaleY(1f).translationX(0f).setDuration(320)
+                .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
+        }
         val longPress = Runnable {
             moving = true
             setThick(true)
@@ -280,12 +293,17 @@ class IdleAccessibilityService : AccessibilityService() {
                             moved = true
                             handler.removeCallbacks(longPress)  // 手指一動就不是長按
                         }
-                        if (!opened && dx > dp(24) && abs(dx) >= abs(dy)) { opened = true; openPanel(lp.y) }
+                        if (!opened && moved && abs(dx) >= abs(dy)) {
+                            bar.animate().cancel()
+                            setPull(dx)
+                            if (dx >= pullMax) { opened = true; springBack(); openPanel(lp.y) }
+                        }
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
                     if (moving) { saveHandleY(lp.y); setThick(false) }
+                    else if (!opened) springBack()  // 沒拉夠就放開：彈回原位
                     moving = false
                 }
             }
@@ -346,14 +364,17 @@ class IdleAccessibilityService : AccessibilityService() {
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
         // 橫屏（前鏡頭在左或右）：選單離邊緣的距離 = 邊緣到鏡頭孔外緣，左右兩側都用同一個值；
-        // 直屏等鏡頭不在側邊時：與螢幕邊緣留 12dp。鏡頭孔位置依每支手機自動取得。
+        // 直屏等鏡頭不在側邊時：與螢幕邊緣留 15dp。鏡頭孔位置依每支手機自動取得。
         val cutout = cutoutSideInset()
-        lp.x = if (cutout > 0) cutout else dp(12)
+        lp.x = if (cutout > 0) cutout else dp(15)
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box
         updateHandle()
-        box.translationX = (if (left) -1 else 1) * dp(220).toFloat()
-        box.animate().translationX(0f).setDuration(180).start()
+        // 從邊緣彈出：滑入 + 淡入 + 一點回彈
+        box.translationX = (if (left) -1 else 1) * dp(120).toFloat()
+        box.alpha = 0f
+        box.animate().translationX(0f).alpha(1f).setDuration(260)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).start()
     }
 
     private fun closePanel() {
