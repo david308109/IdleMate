@@ -247,22 +247,44 @@ class IdleAccessibilityService : AccessibilityService() {
         var moving = false   // 長按 0.5 秒後進入移動模式
         var moved = false    // 手指已經滑動（不算點一下）
         var opened = false
-        val pullMax = dp(40).toFloat()  // 拉到這個距離就打開選單
-        // 拉扯特效：線跟著手指被拉粗、往內凸出（以靠邊那一側為支點）
-        fun setPull(dx: Float) {
-            val k = (dx / pullMax).coerceIn(0f, 1f)
-            bar.pivotX = if (onLeft) 0f else bar.width.toFloat()
-            bar.scaleX = 1f + 1.8f * k
-            bar.scaleY = 1f - 0.15f * k
-            bar.translationX = (if (onLeft) 1 else -1) * dp(6) * k
+        val barH = dp(77)
+        var startLeft = onLeft  // 開始移動時在哪一邊（拉扯只在原本那一邊發生）
+        var spring: android.animation.ValueAnimator? = null
+
+        // 拉扯特效：移動模式中，線以螢幕邊緣為錨點，被手指往中間拉長、變細，像橡皮筋
+        fun setStretch(d: Float, half: Float) {
+            val k = (d / half).coerceIn(0f, 1f)
+            barLp.width = thick + (d * 0.6f).toInt().coerceAtLeast(0)
+            barLp.height = (barH * (1f - 0.4f * k)).toInt()
+            bar.layoutParams = barLp
         }
-        fun springBack() {
-            bar.animate().scaleX(1f).scaleY(1f).translationX(0f).setDuration(320)
-                .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
+        // 彈回：從目前的長度彈回一般粗細，帶一點回彈
+        fun springTo(width: Int, height: Int) {
+            spring?.cancel()
+            val w0 = barLp.width; val h0 = barLp.height
+            spring = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 380
+                interpolator = android.view.animation.OvershootInterpolator(2.5f)
+                addUpdateListener {
+                    val t = it.animatedValue as Float
+                    barLp.width = (w0 + (width - w0) * t).toInt().coerceAtLeast(1)
+                    barLp.height = (h0 + (height - h0) * t).toInt().coerceAtLeast(1)
+                    bar.layoutParams = barLp
+                }
+                start()
+            }
         }
+        fun setWindowWidth(w: Int) {
+            lp.width = w
+            runCatching { wm.updateViewLayout(touch, lp) }
+        }
+
         val longPress = Runnable {
             moving = true
+            startLeft = onLeft
             setThick(true)
+            // 移動時暫時把視窗撐滿整個寬度，線才能被拉長、也能拖到另一邊
+            setWindowWidth(WindowManager.LayoutParams.MATCH_PARENT)
         }
         touch.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -276,16 +298,22 @@ class IdleAccessibilityService : AccessibilityService() {
                     val dy = e.rawY - downY
                     if (moving) {
                         lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
-                        // 拖過螢幕中線：把手換到另一邊（立即生效，並記住）
-                        val screenW = resources.displayMetrics.widthPixels
-                        val wantLeft = e.rawX < screenW / 2f
+                        val screenW = resources.displayMetrics.widthPixels.toFloat()
+                        val half = screenW / 2f
+                        val wantLeft = e.rawX < half
                         if (wantLeft != onLeft) {
+                            // 拖過螢幕中線：換到另一邊，線「啪」一下彈到新的邊緣
                             onLeft = wantLeft
                             prefs.edgeLeft = wantLeft
                             val side = if (wantLeft) Gravity.START else Gravity.END
                             lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
                             barLp.gravity = side or Gravity.CENTER_VERTICAL
                             bar.layoutParams = barLp
+                            springTo(thick, barH)
+                        } else if (onLeft == startLeft) {
+                            spring?.cancel()
+                            val d = if (onLeft) e.rawX else screenW - e.rawX
+                            setStretch(d, half)
                         }
                         runCatching { wm.updateViewLayout(touch, lp) }
                     } else {
@@ -293,17 +321,18 @@ class IdleAccessibilityService : AccessibilityService() {
                             moved = true
                             handler.removeCallbacks(longPress)  // 手指一動就不是長按
                         }
-                        if (!opened && moved && abs(dx) >= abs(dy)) {
-                            bar.animate().cancel()
-                            setPull(dx)
-                            if (dx >= pullMax) { opened = true; springBack(); openPanel(lp.y) }
-                        }
+                        if (!opened && dx > dp(24) && abs(dx) >= abs(dy)) { opened = true; openPanel(lp.y) }
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(longPress)
-                    if (moving) { saveHandleY(lp.y); setThick(false) }
-                    else if (!opened) springBack()  // 沒拉夠就放開：彈回原位
+                    if (moving) {
+                        saveHandleY(lp.y)
+                        spring?.cancel()
+                        setThick(false)
+                        barLp.height = barH; bar.layoutParams = barLp
+                        setWindowWidth(dp(28))
+                    }
                     moving = false
                 }
             }
@@ -324,23 +353,21 @@ class IdleAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 從螢幕左右邊緣到前鏡頭孔外緣的距離（px）；鏡頭不在左右兩側（例如直屏）時為 0。
-     * 不管鏡頭在左邊還是右邊都回傳同一個值，讓兩個方向的橫屏看起來一致。
+     * 把手那一側（左或右），從螢幕邊緣到前鏡頭孔外緣的距離（px）；鏡頭不在這一側時為 0。
      * Android 12+ 用鏡頭孔的實際形狀（系統的安全範圍通常比鏡頭孔大一圈）；舊版用安全範圍。
      */
-    private fun cutoutSideInset(): Int {
+    private fun cutoutInsetOnHandleSide(): Int {
         if (Build.VERSION.SDK_INT < 30) return 0
         val metrics = runCatching { wm.currentWindowMetrics }.getOrNull() ?: return 0
         val safe = metrics.windowInsets.getInsets(android.view.WindowInsets.Type.displayCutout())
-        val safeInset = maxOf(safe.left, safe.right)
+        val safeInset = if (left) safe.left else safe.right
         if (safeInset <= 0) return 0
         if (Build.VERSION.SDK_INT >= 31) {
             val path = runCatching { metrics.windowInsets.displayCutout?.cutoutPath }.getOrNull()
             if (path != null && !path.isEmpty) {
                 val b = android.graphics.RectF()
                 @Suppress("DEPRECATION") path.computeBounds(b, true)
-                val w = metrics.bounds.width()
-                val exact = if (safe.left >= safe.right) b.right else w - b.left
+                val exact = if (left) b.right else metrics.bounds.width() - b.left
                 if (exact > 0 && exact <= safeInset) return kotlin.math.ceil(exact).toInt()
             }
         }
@@ -363,9 +390,9 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
-        // 橫屏（前鏡頭在左或右）：選單離邊緣的距離 = 邊緣到鏡頭孔外緣，左右兩側都用同一個值；
-        // 直屏等鏡頭不在側邊時：與螢幕邊緣留 15dp。鏡頭孔位置依每支手機自動取得。
-        val cutout = cutoutSideInset()
+        // 把手那一側有前鏡頭（橫屏）：選單緊貼鏡頭孔外緣；
+        // 沒有鏡頭的那一側（含直屏）：與螢幕邊緣留 15dp。鏡頭孔位置依每支手機自動取得。
+        val cutout = cutoutInsetOnHandleSide()
         lp.x = if (cutout > 0) cutout else dp(15)
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box

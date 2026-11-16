@@ -54,8 +54,8 @@ Note: the app itself cannot read this state (the system throws a SecurityExcepti
 - [ ] Swipe inward from the handle: the menu opens and the system back gesture is **not** triggered.
 - [ ] A single tap on the handle does not open the menu.
 - [ ] Long-press the handle for about 0.5 s: the line gets thicker (no vibration) and can then be dragged up or down.
-- [ ] While moving, drag past the middle of the screen: the handle switches to the other edge and stays there after release.
-- [ ] Landscape: the menu sits right next to the front camera hole, with the same distance on both sides.
+- [ ] While moving, pull toward the middle: the line stretches like a rubber band. Past the middle it snaps to the other edge and stays there after release.
+- [ ] Landscape: on the camera side the menu sits right next to the camera hole; on the other side it is 15dp from the edge.
 - [ ] In landscape, the handle defaults to the top-right.
 - [ ] 🌙 Screen-off mode in YouTube: the screen goes black, audio keeps playing, taps are blocked.
 - [ ] 🌙 Screen-off mode in a game: the screen goes black and the game keeps running.
