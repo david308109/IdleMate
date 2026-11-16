@@ -247,32 +247,36 @@ class IdleAccessibilityService : AccessibilityService() {
         var moving = false   // 長按 0.5 秒後進入移動模式
         var moved = false    // 手指已經滑動（不算點一下）
         var opened = false
-        val barH = dp(77)
-        var startLeft = onLeft  // 開始移動時在哪一邊（拉扯只在原本那一邊發生）
-        var spring: android.animation.ValueAnimator? = null
+        val switchAt = dp(96).toFloat()  // 往中間拉超過這個距離，就彈到另一邊
+        var switched = false             // 這次拖動已經換過邊（一次拖動只換一次）
 
-        // 拉扯特效：移動模式中，線以螢幕邊緣為錨點，被手指往中間拉長、變細，像橡皮筋
-        fun setStretch(d: Float, half: Float) {
-            val k = (d / half).coerceIn(0f, 1f)
-            barLp.width = thick + (d * 0.6f).toInt().coerceAtLeast(0)
-            barLp.height = (barH * (1f - 0.4f * k)).toInt()
-            bar.layoutParams = barLp
+        // 換邊特效：線整條跟著手指往中間移動（帶阻力），拉夠遠就直接飛到另一邊
+        fun followFinger(d: Float) {
+            bar.translationX = (if (onLeft) 1 else -1) * (d * 0.4f).coerceIn(0f, switchAt * 0.4f)
         }
-        // 彈回：從目前的長度彈回一般粗細，帶一點回彈
-        fun springTo(width: Int, height: Int) {
-            spring?.cancel()
-            val w0 = barLp.width; val h0 = barLp.height
-            spring = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 380
-                interpolator = android.view.animation.OvershootInterpolator(2.5f)
-                addUpdateListener {
-                    val t = it.animatedValue as Float
-                    barLp.width = (w0 + (width - w0) * t).toInt().coerceAtLeast(1)
-                    barLp.height = (h0 + (height - h0) * t).toInt().coerceAtLeast(1)
+        fun slideBack() {
+            bar.animate().translationX(0f).setDuration(220)
+                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        }
+        fun flyToOtherSide(screenW: Float) {
+            val toLeft = !onLeft
+            val travel = screenW - bar.width
+            bar.animate().cancel()
+            bar.animate().translationX((if (toLeft) -1 else 1) * travel).setDuration(200)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    // 落到新的邊緣：改貼另一邊，再從內側輕輕彈一下
+                    onLeft = toLeft
+                    prefs.edgeLeft = toLeft
+                    val side = if (toLeft) Gravity.START else Gravity.END
+                    lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
+                    barLp.gravity = side or Gravity.CENTER_VERTICAL
                     bar.layoutParams = barLp
-                }
-                start()
-            }
+                    runCatching { wm.updateViewLayout(touch, lp) }
+                    bar.translationX = (if (toLeft) 1 else -1) * dp(14).toFloat()
+                    bar.animate().translationX(0f).setDuration(320)
+                        .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
+                }.start()
         }
         fun setWindowWidth(w: Int) {
             lp.width = w
@@ -281,7 +285,7 @@ class IdleAccessibilityService : AccessibilityService() {
 
         val longPress = Runnable {
             moving = true
-            startLeft = onLeft
+            switched = false
             setThick(true)
             // 移動時暫時把視窗撐滿整個寬度，線才能被拉長、也能拖到另一邊
             setWindowWidth(WindowManager.LayoutParams.MATCH_PARENT)
@@ -298,22 +302,11 @@ class IdleAccessibilityService : AccessibilityService() {
                     val dy = e.rawY - downY
                     if (moving) {
                         lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
-                        val screenW = resources.displayMetrics.widthPixels.toFloat()
-                        val half = screenW / 2f
-                        val wantLeft = e.rawX < half
-                        if (wantLeft != onLeft) {
-                            // 拖過螢幕中線：換到另一邊，線「啪」一下彈到新的邊緣
-                            onLeft = wantLeft
-                            prefs.edgeLeft = wantLeft
-                            val side = if (wantLeft) Gravity.START else Gravity.END
-                            lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
-                            barLp.gravity = side or Gravity.CENTER_VERTICAL
-                            bar.layoutParams = barLp
-                            springTo(thick, barH)
-                        } else if (onLeft == startLeft) {
-                            spring?.cancel()
-                            val d = if (onLeft) e.rawX else screenW - e.rawX
-                            setStretch(d, half)
+                        if (!switched) {
+                            val screenW = resources.displayMetrics.widthPixels.toFloat()
+                            val d = if (onLeft) e.rawX else screenW - e.rawX  // 手指離目前邊緣多遠
+                            if (d >= switchAt) { switched = true; flyToOtherSide(screenW) }
+                            else followFinger(d)
                         }
                         runCatching { wm.updateViewLayout(touch, lp) }
                     } else {
@@ -328,10 +321,9 @@ class IdleAccessibilityService : AccessibilityService() {
                     handler.removeCallbacks(longPress)
                     if (moving) {
                         saveHandleY(lp.y)
-                        spring?.cancel()
+                        if (!switched) slideBack()  // 沒拉夠遠：滑回原本的邊緣
                         setThick(false)
-                        barLp.height = barH; bar.layoutParams = barLp
-                        setWindowWidth(dp(28))
+                        handler.postDelayed({ if (!moving) setWindowWidth(dp(28)) }, 560)  // 等動畫結束再縮回
                     }
                     moving = false
                 }
