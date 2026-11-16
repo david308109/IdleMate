@@ -255,10 +255,6 @@ class IdleAccessibilityService : AccessibilityService() {
         fun followFinger(d: Float) {
             bar.translationX = (if (onLeft) 1 else -1) * (d * 0.4f).coerceIn(0f, switchAt * 0.4f)
         }
-        fun slideBack() {
-            bar.animate().translationX(0f).setDuration(220)
-                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-        }
         fun flyToOtherSide(screenW: Float) {
             val toLeft = !onLeft
             val travel = screenW - bar.width
@@ -280,6 +276,24 @@ class IdleAccessibilityService : AccessibilityService() {
                     bar.animate().translationX(0f).setDuration(320)
                         .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
                 }.start()
+        }
+        // 放開時：線在短時間內一邊變細、一邊滑回邊緣（不要一下子跳回去）
+        fun releaseSmoothly(slide: Boolean) {
+            val w0 = barLp.width
+            val t0 = bar.translationX
+            if (slide) bar.animate().cancel()
+            (bar.background as GradientDrawable).setColor(0xB0546E7A.toInt())
+            android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 220
+                interpolator = android.view.animation.DecelerateInterpolator()
+                addUpdateListener {
+                    val t = it.animatedValue as Float
+                    barLp.width = (w0 + (thin - w0) * t).toInt().coerceAtLeast(1)
+                    bar.layoutParams = barLp
+                    if (slide) bar.translationX = t0 * (1f - t)
+                }
+                start()
+            }
         }
         fun setWindowWidth(w: Int) {
             lp.width = w
@@ -328,8 +342,8 @@ class IdleAccessibilityService : AccessibilityService() {
                     handler.removeCallbacks(longPress)
                     if (moving) {
                         saveHandleY(lp.y)
-                        if (!flying) slideBack()  // 沒拉夠遠：滑回原本的邊緣
-                        setThick(false)
+                        // 沒在飛：一邊變細一邊滑回邊緣；正在飛：讓它飛完，只把線變細
+                        releaseSmoothly(slide = !flying)
                         handler.postDelayed({ if (!moving) setWindowWidth(dp(28)) }, 560)  // 等動畫結束再縮回
                     }
                     moving = false
