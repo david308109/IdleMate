@@ -223,7 +223,7 @@ class IdleAccessibilityService : AccessibilityService() {
                 cornerRadius = dp(100).toFloat(); setColor(0xB0546E7A.toInt())  // 圓角取大值 → 兩端是半圓（膠囊形）
             }
         }
-        val onLeft = left
+        var onLeft = left  // 移動模式中拖過螢幕中線會換邊
         val barLp = FrameLayout.LayoutParams(thin, dp(77),
             (if (onLeft) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL)
         val touch = FrameLayout(this).apply { addView(bar, barLp) }
@@ -263,6 +263,17 @@ class IdleAccessibilityService : AccessibilityService() {
                     val dy = e.rawY - downY
                     if (moving) {
                         lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
+                        // 拖過螢幕中線：把手換到另一邊（立即生效，並記住）
+                        val screenW = resources.displayMetrics.widthPixels
+                        val wantLeft = e.rawX < screenW / 2f
+                        if (wantLeft != onLeft) {
+                            onLeft = wantLeft
+                            prefs.edgeLeft = wantLeft
+                            val side = if (wantLeft) Gravity.START else Gravity.END
+                            lp.gravity = side or (if (landscape) Gravity.TOP else Gravity.CENTER_VERTICAL)
+                            barLp.gravity = side or Gravity.CENTER_VERTICAL
+                            bar.layoutParams = barLp
+                        }
                         runCatching { wm.updateViewLayout(touch, lp) }
                     } else {
                         if (abs(dx) > slop || abs(dy) > slop) {

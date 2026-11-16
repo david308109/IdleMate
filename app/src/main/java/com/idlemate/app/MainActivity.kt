@@ -280,7 +280,7 @@ private fun Home(refreshTick: Int, onSetup: () -> Unit) {
                         IdleAccessibilityService.instance?.refreshHandle()
                     })
                 }
-                Text("按住把手約 0.5 秒，線變粗後即可上下拖曳調整位置。", style = MaterialTheme.typography.bodySmall)
+                Text("按住把手約 0.5 秒，線變粗後即可上下拖曳調整位置；拖過螢幕中間可以換到另一邊。", style = MaterialTheme.typography.bodySmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("放在左邊", modifier = Modifier.weight(1f))
                     Switch(checked = edgeLeft, onCheckedChange = {
