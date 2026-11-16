@@ -30,7 +30,7 @@ Get the latest `IdleMate-x.y.z.apk` from [Releases](https://github.com/david3081
 ### The handle
 
 - A short pill-shaped line. Portrait: right edge, vertically centred. Landscape: top-right by default.
-- **Long-press for about 0.5 s** until the line gets thicker, then drag it up or down. Pull it toward the middle and the line follows your finger; pull far enough and it flies to the other edge. Portrait and landscape positions are remembered separately.
+- **Long-press for about 0.5 s** until the line gets thicker, then drag it up or down. Pull it toward the middle and the line follows your finger; pull far enough and it flies to the other edge. Pull back the other way to send it back, as many times as you like in one drag. Portrait and landscape positions are remembered separately.
 - The menu keeps 15dp from the screen edge. In landscape, on the side with the front camera, it sits right next to the camera hole instead. The position is read from each phone's own camera cutout (Android 12+; older versions use the system's cutout safe area).
 - A single tap does nothing, to avoid accidental opens. The handle area does not trigger the system back gesture.
 - It only appears in your chosen apps, and hides automatically when you leave the app, lock the phone, or the screen is black.

@@ -248,7 +248,8 @@ class IdleAccessibilityService : AccessibilityService() {
         var moved = false    // 手指已經滑動（不算點一下）
         var opened = false
         val switchAt = dp(96).toFloat()  // 往中間拉超過這個距離，就彈到另一邊
-        var switched = false             // 這次拖動已經換過邊（一次拖動只換一次）
+        var refX = 0f        // 起算點：到這一邊之後，手指最靠近這一邊的位置（可左右來回）
+        var flying = false   // 正在飛往另一邊（動畫中不再判斷）
 
         // 換邊特效：線整條跟著手指往中間移動（帶阻力），拉夠遠就直接飛到另一邊
         fun followFinger(d: Float) {
@@ -262,6 +263,7 @@ class IdleAccessibilityService : AccessibilityService() {
             val toLeft = !onLeft
             val travel = screenW - bar.width
             bar.animate().cancel()
+            flying = true
             bar.animate().translationX((if (toLeft) -1 else 1) * travel).setDuration(200)
                 .setInterpolator(android.view.animation.AccelerateInterpolator())
                 .withEndAction {
@@ -274,6 +276,7 @@ class IdleAccessibilityService : AccessibilityService() {
                     bar.layoutParams = barLp
                     runCatching { wm.updateViewLayout(touch, lp) }
                     bar.translationX = (if (toLeft) 1 else -1) * dp(14).toFloat()
+                    flying = false
                     bar.animate().translationX(0f).setDuration(320)
                         .setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
                 }.start()
@@ -285,7 +288,8 @@ class IdleAccessibilityService : AccessibilityService() {
 
         val longPress = Runnable {
             moving = true
-            switched = false
+            flying = false
+            refX = downX
             setThick(true)
             // 移動時暫時把視窗撐滿整個寬度，線才能被拉長、也能拖到另一邊
             setWindowWidth(WindowManager.LayoutParams.MATCH_PARENT)
@@ -302,11 +306,14 @@ class IdleAccessibilityService : AccessibilityService() {
                     val dy = e.rawY - downY
                     if (moving) {
                         lp.y = (startY + dy.toInt()).let { if (landscape) it.coerceAtLeast(0) else it }
-                        if (!switched) {
-                            val screenW = resources.displayMetrics.widthPixels.toFloat()
-                            val d = if (onLeft) e.rawX else screenW - e.rawX  // 手指離目前邊緣多遠
-                            if (d >= switchAt) { switched = true; flyToOtherSide(screenW) }
-                            else followFinger(d)
+                        if (!flying) {
+                            // 起算點跟著手指往這一邊退（線在左：取最左；線在右：取最右）
+                            refX = if (onLeft) minOf(refX, e.rawX) else maxOf(refX, e.rawX)
+                            val d = if (onLeft) e.rawX - refX else refX - e.rawX  // 往中間拉了多遠
+                            if (d >= switchAt) {
+                                refX = e.rawX  // 換邊後從這裡重新起算，可以再拉回來
+                                flyToOtherSide(resources.displayMetrics.widthPixels.toFloat())
+                            } else followFinger(d)
                         }
                         runCatching { wm.updateViewLayout(touch, lp) }
                     } else {
@@ -321,7 +328,7 @@ class IdleAccessibilityService : AccessibilityService() {
                     handler.removeCallbacks(longPress)
                     if (moving) {
                         saveHandleY(lp.y)
-                        if (!switched) slideBack()  // 沒拉夠遠：滑回原本的邊緣
+                        if (!flying) slideBack()  // 沒拉夠遠：滑回原本的邊緣
                         setThick(false)
                         handler.postDelayed({ if (!moving) setWindowWidth(dp(28)) }, 560)  // 等動畫結束再縮回
                     }
