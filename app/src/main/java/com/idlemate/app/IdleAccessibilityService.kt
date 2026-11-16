@@ -295,14 +295,15 @@ class IdleAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 目前把手那一側（左或右），從螢幕邊緣到前鏡頭孔外緣的距離（px）；沒有則為 0。
+     * 從螢幕左右邊緣到前鏡頭孔外緣的距離（px）；鏡頭不在左右兩側（例如直屏）時為 0。
+     * 不管鏡頭在左邊還是右邊都回傳同一個值，讓兩個方向的橫屏看起來一致。
      * Android 12+ 用鏡頭孔的實際形狀（系統的安全範圍通常比鏡頭孔大一圈）；舊版用安全範圍。
      */
-    private fun cutoutInsetOnHandleSide(): Int {
+    private fun cutoutSideInset(): Int {
         if (Build.VERSION.SDK_INT < 30) return 0
         val metrics = runCatching { wm.currentWindowMetrics }.getOrNull() ?: return 0
         val safe = metrics.windowInsets.getInsets(android.view.WindowInsets.Type.displayCutout())
-        val safeInset = if (left) safe.left else safe.right
+        val safeInset = maxOf(safe.left, safe.right)
         if (safeInset <= 0) return 0
         if (Build.VERSION.SDK_INT >= 31) {
             val path = runCatching { metrics.windowInsets.displayCutout?.cutoutPath }.getOrNull()
@@ -310,7 +311,7 @@ class IdleAccessibilityService : AccessibilityService() {
                 val b = android.graphics.RectF()
                 @Suppress("DEPRECATION") path.computeBounds(b, true)
                 val w = metrics.bounds.width()
-                val exact = if (left) b.right else w - b.left
+                val exact = if (safe.left >= safe.right) b.right else w - b.left
                 if (exact > 0 && exact <= safeInset) return kotlin.math.ceil(exact).toInt()
             }
         }
@@ -333,9 +334,9 @@ class IdleAccessibilityService : AccessibilityService() {
         }
         val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, watchOutside = true)
         lp.y = y
-        // 把手那一側有前鏡頭（橫屏）時：選單緊貼鏡頭孔外緣；
-        // 沒有時：與螢幕邊緣留 12dp。鏡頭孔位置依每支手機自動取得。
-        val cutout = cutoutInsetOnHandleSide()
+        // 橫屏（前鏡頭在左或右）：選單離邊緣的距離 = 邊緣到鏡頭孔外緣，左右兩側都用同一個值；
+        // 直屏等鏡頭不在側邊時：與螢幕邊緣留 12dp。鏡頭孔位置依每支手機自動取得。
+        val cutout = cutoutSideInset()
         lp.x = if (cutout > 0) cutout else dp(12)
         runCatching { wm.addView(box, lp) }.onFailure { return }
         panel = box
